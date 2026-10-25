@@ -117,6 +117,15 @@ cell robot hàn (có hàng rào an toàn), bàn lắp ráp, cổng QC, máy xế
 thành phẩm ở C_OUT. Sản phẩm (hộp) chạy liên tục trên mọi đoạn băng tải trong Gazebo; khi MES báo dây chuyền
 `STARVED`/`BLOCKED` thì băng tải của dây đó dừng (topic `/factory/line_state`).
 
+**Công nhân đi lại trong nhà máy** (Gazebo, system `amr_pedestrians`, mục `people:` trong layout): 8 người mặc áo
+phản quang, đội mũ bảo hộ, đi bộ ~1 m/s, tay chân đung đưa theo bước đi, dừng làm việc ở các điểm trên tuyến:
+2 người lấy hàng giữa các dãy kệ khu A và D, 4 người vận hành dọc hành lang giữa các dây chuyền B và C, 1 người vận
+chuyển vật tư băng qua trục chính, 1 giám sát đi vòng cắt qua ngõ x = 74. Lối đi bộ được sơn vạch xanh, chỗ cắt làn
+AMR có vạch qua đường (zebra). Fleet manager không lập kế hoạch quanh họ: lidar 270° thấy chân, camera 3D thấy cả
+người, nên `collision_monitor` của Nav2 giảm tốc / dừng AMR khi có người phía trước. Người đứng chờ khi một AMR đang
+chạy tới gần và quay lại nếu AMR đứng chắn lối đi quá lâu (không bao giờ kẹt cứng người ↔ robot). Vị trí từng người
+có trên `/factory/people` (`geometry_msgs/PoseArray`) và trong RViz. Tắt bằng `people:=false`.
+
 **Chu trình (MES mô phỏng, `process:` trong layout):**
 
 1. `KIT_DELIVERY` A1–A5 → B*_IN: kit linh kiện (12 bộ) cho dây chuyền sản xuất.
@@ -249,6 +258,7 @@ yield bay, chờ robot kia đi qua rồi **bám lại route cũ**. Mọi bước
 | `gui` | `true` | GUI Gazebo |
 | `rviz` | `true` | RViz2 với cấu hình sinh tự động cho N robot (thêm hiển thị Nav2 khi `navigation:=nav2`) |
 | `camera` | `true` | Mô phỏng camera RGB-D trên mọi robot (point cloud vào costmap + collision monitor) |
+| `people` | `true` | Công nhân đi lại trong nhà máy (Gazebo) |
 | `bridge_cameras` | `first` | `none` · `first` · `all`: ảnh camera của robot nào được đưa sang ROS |
 | `priority_mode` | `task` | `task` · `dynamic` · `static` |
 | `production` | `true` | `false`: tắt MES mô phỏng, robot chỉ chạy task thủ công / demo |

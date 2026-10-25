@@ -194,6 +194,13 @@ quyền qua giao lộ (chống "chết đói"), không làm lật kèo né đư�
 
 ## 5. Pin và trạm sạc
 
+**Vào dock chính xác (Nav2 `opennav_docking`).** Route của robot đi sạc kết thúc ở node dock của trạm (điểm chờ /
+staging). Agent gọi `DockRobot` cho `docking_server` của robot: server tự lái 0.5 m cuối cho tới khi cản trước chạm
+tấm tiếp điểm của bộ sạc. Vị trí dock được agent **phát hiện từ lidar** (fit mặt phẳng rộng 0.8 m của bộ sạc trong
+scan 270°, `core/docking.py`) và gửi lên `detected_dock_pose`, nên độ chính xác không phụ thuộc sai số AMCL. Thử trong
+Gazebo: AMCL lệch 8 cm nhưng robot vẫn dừng cách vị trí dock đúng 1.5 cm. Khi có lệnh mới, agent gọi `UndockRobot`
+(lùi về điểm chờ) trước khi đi tiếp. Nếu dock thất bại 2 lần, robot sạc tại điểm chờ.
+
 * Pin được mô phỏng trên robot (`robot_agent`): tiêu hao khi đứng yên và khi chạy, sạc 0.25 %/s trên dock.
 * Pin < 30 %: làm xong task hiện tại rồi đi sạc, huỷ "task tiếp theo" nếu có. Pin < 15 % khi đang chạy rỗng: trả
   task về hàng đợi rồi đi sạc ngay.

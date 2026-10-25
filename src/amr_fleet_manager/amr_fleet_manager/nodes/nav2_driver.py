@@ -35,6 +35,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from ..core.controller import MODE_FOLLOW, PathFollower, wrap
+from .docking_client import DOCKED, DOCKING, IDLE, UNDOCKING, ChargerDocking
 
 
 def _quat(yaw: float):
@@ -87,6 +88,9 @@ class Nav2Driver:
         self.clear_cli = node.create_client(ClearEntireCostmap,
                                             'local_costmap/clear_entirely_local_costmap')
         self.last_clear = -math.inf
+        self.docking = ChargerDocking(node, robot_id)
+        self.dock_id = ''           # charger at the end of the current route (RouteCommand)
+        self.last_cmd = -1
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         node.create_subscription(PoseWithCovarianceStamped, 'amcl_pose', self._on_amcl, latched)
@@ -127,6 +131,8 @@ class Nav2Driver:
         if s.mode != MODE_FOLLOW or not s.waypoints or s.granted < 0:
             self.cancel()
             return
+        if self._docking_step(s):
+            return
         if not self.server_ready:
             self.server_ready = self.client.server_is_ready()
             if not self.server_ready:
@@ -145,6 +151,8 @@ class Nav2Driver:
             yaw_ok = math.isnan(s.final_yaw) or abs(wrap(s.final_yaw - yaw)) < self.YAW_TOL
             if yaw_ok and (self.goal_done or abs(speed) < 0.03 or d_end < 0.08):
                 self.cancel()
+                if self.dock_id and self.docking.at_staging(self.dock_id, s.command_id, now):
+                    return        # docking on the charger, the route completes once docked
                 s.complete = True
                 return
         elif s.reached >= s.granted:
@@ -159,6 +167,30 @@ class Nav2Driver:
         if now - self.last_send < self.RESEND_PERIOD:
             return
         self._send(self._build_path(x, y, yaw), key, now)
+
+    def _docking_step(self, s) -> bool:
+        """Charger docking around the route.  True while it owns the robot."""
+        dk = self.docking
+        if s.command_id != self.last_cmd:
+            self.last_cmd = s.command_id
+            dk.reset_arrival()
+            if dk.state == IDLE:
+                dk.attempts = 0
+        if dk.state == DOCKED:
+            if s.command_id == dk.command_id or (
+                    len(s.waypoints) == 1 and self.dock_id == dk.dock_id):
+                # docked, or the fleet keeps the robot on this charger
+                dk.command_id = s.command_id
+                s.reached = len(s.waypoints) - 1
+                s.complete = True
+                return True
+            self.cancel()
+            dk.undock()               # back to the staging pose before the new route
+            return True
+        if dk.state in (DOCKING, UNDOCKING):
+            self.cancel()             # FollowPath must not fight the docking server
+            return True
+        return False
 
     def _advance(self, x: float, y: float) -> None:
         """Progress along the route by projection on the granted polyline.

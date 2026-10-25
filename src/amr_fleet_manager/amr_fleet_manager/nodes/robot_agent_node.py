@@ -148,6 +148,8 @@ class RobotAgent(Node):
         ok = (np.abs(ang) <= self.half_angle) & (r > msg.range_min) & (r < msg.range_max)
         self.lidar_clearance = float(r[ok].min()) if ok.any() else math.inf
         self._fuse()
+        if self.nav2 is not None:
+            self.nav2.docking.on_scan(msg)     # charger face -> detected_dock_pose
 
     def _on_points(self, msg: PointCloud2) -> None:
         """Closest 3D obstacle in front of the robot from the RGB-D point cloud.
@@ -186,6 +188,8 @@ class RobotAgent(Node):
         self.follower.set_command(msg.command_id, msg.mode, wps, list(msg.speed_limits),
                                   msg.granted_index, msg.final_yaw)
         self.charge_enable = bool(msg.charge)
+        if self.nav2 is not None:
+            self.nav2.dock_id = msg.dock_id
         if bool(msg.carrying) != self.carrying:
             self.carrying = bool(msg.carrying)
             self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else CARGO_DOWN))

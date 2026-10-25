@@ -10,6 +10,8 @@
     controller_server  Regulated Pure Pursuit + local costmap (2D lidar + RGB-D
                        point cloud), FollowPath action, cmd_vel -> cmd_vel_nav
     collision_monitor  lidar + RGB-D stop / slow-down zones, cmd_vel_nav -> cmd_vel
+    docking_server     precise docking on the chargers (opennav_docking), dock pose
+                       detected from the lidar by the robot agent
     lifecycle_manager_navigation
   full_stack:=true adds planner_server, behavior_server and bt_navigator
   (NavigateToPose for manual tests; the fleet does not need them).
@@ -31,20 +33,36 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
 
+from amr_fleet_manager.core.docking import docked_pose
 from amr_fleet_manager.core.layout import build_graph, load_layout
 from amr_fleet_manager.sim.headless import robot_name, spawn_poses
 from amr_fleet_manager.tools.generate_world import write_factory_map
 
-CORE = ['amcl', 'controller_server', 'collision_monitor']
+CORE = ['amcl', 'controller_server', 'collision_monitor', 'docking_server']
 FULL = ['planner_server', 'behavior_server', 'bt_navigator']
 
 
-def robot_params(template: str, rid: str, pose, camera: bool, full_stack: bool) -> dict:
+def charger_docks(graph) -> dict:
+    """Dock database of the docking server: docked base pose of every charger."""
+    docks = {}
+    for cid, i in sorted(graph.chargers.items()):
+        n = graph.nodes[i]
+        x, y, yaw = docked_pose((n.x, n.y), n.heading)
+        docks[cid] = {'type': 'charger', 'frame': 'map',
+                      'pose': [round(x, 3), round(y, 3), round(yaw, 4)]}
+    return docks
+
+
+def robot_params(template: str, rid: str, pose, camera: bool, full_stack: bool,
+                 docks: dict = None) -> dict:
     """Nav2 parameters of one robot from the nav2_amr.yaml template."""
     data = yaml.safe_load(template.replace('ROBOT', rid))
     x, y, yaw = pose
     amcl = data[f'/{rid}/amcl']['ros__parameters']
     amcl['initial_pose'] = {'x': float(x), 'y': float(y), 'z': 0.0, 'yaw': float(yaw)}
+    dock = data[f'/{rid}/docking_server']['ros__parameters']
+    dock['docks'] = list((docks or {}).keys())
+    dock.update(docks or {})
     data[f'/{rid}/lifecycle_manager_navigation']['ros__parameters']['node_names'] = \
         CORE + (FULL if full_stack else [])
     if not camera:
@@ -71,6 +89,8 @@ def robot_navigation(rid: str, params_file: str, full_stack: bool, log_level: st
         ComposableNode(package='nav2_collision_monitor',
                        plugin='nav2_collision_monitor::CollisionMonitor',
                        name='collision_monitor', namespace=rid, parameters=[params_file]),
+        ComposableNode(package='opennav_docking', plugin='opennav_docking::DockingServer',
+                       name='docking_server', namespace=rid, parameters=[params_file]),
     ]
     if full_stack:
         nodes += [
@@ -100,7 +120,9 @@ def launch_setup(context, *args, **kwargs):
     share = get_package_share_directory('amr_bringup')
     layout_file = lc('layout_file') or os.path.join(share, 'config', 'factory_layout.yaml')
     layout = load_layout(layout_file)
-    poses = spawn_poses(build_graph(layout), n)
+    graph = build_graph(layout)
+    poses = spawn_poses(graph, n)
+    docks = charger_docks(graph)
     tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet')
     os.makedirs(tmp, exist_ok=True)
     sim_time = lc('use_sim_time').lower() == 'true'
@@ -125,7 +147,7 @@ def launch_setup(context, *args, **kwargs):
     delay, stagger = float(lc('start_delay')), float(lc('stagger'))
     for i, pose in enumerate(poses):
         rid = robot_name(i)
-        data = robot_params(template, rid, pose, camera, full)
+        data = robot_params(template, rid, pose, camera, full, docks)
         if not sim_time:
             for v in data.values():
                 v['ros__parameters']['use_sim_time'] = False

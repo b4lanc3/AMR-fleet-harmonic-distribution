@@ -34,6 +34,7 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
+from ..core.docking import CONTACT_DEPTH
 from ..core.layout import (build_graph, line_objects, load_layout, people_routes,
                            people_segments, station_objects)
 
@@ -602,11 +603,18 @@ def add_cabinet(m: Model, o) -> None:
 
 
 def add_charger(m: Model, o) -> None:
+    """Charger unit facing -y (towards its dock node).  The flat face is what the
+    AMR's lidar detects for docking; the contact plate sticks out CONTACT_DEPTH at
+    bumper height, below the lidar plane, where the docked AMR's bumper touches it."""
     x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
     h = float(o.get('height', 1.1))
     m.box(cx, cy, h / 2, sx, sy, h, 'charger', collide=True)
     m.box(cx, cy - sy / 2 - 0.01, h * 0.72, sx * 0.7, 0.02, h * 0.25, 'screen_on')
-    m.box(cx, cy - sy / 2 - 0.05, 0.25, sx * 0.5, 0.1, 0.12, 'steel')      # charging contacts
+    plate_y = cy - sy / 2 - CONTACT_DEPTH / 2
+    m.box(cx, plate_y, 0.10, sx * 0.6, CONTACT_DEPTH, 0.08, 'dark')           # contact arm
+    for dx in (-0.12, 0.12):                                                   # copper pads
+        m.box(cx + dx, plate_y - CONTACT_DEPTH / 2 - 0.004, 0.10, 0.12, 0.008, 0.05,
+              (0.85, 0.55, 0.25, 1))
     m.cyl(cx, cy, h + 0.08, 0.05, 0.12, 'led_green')
 
 

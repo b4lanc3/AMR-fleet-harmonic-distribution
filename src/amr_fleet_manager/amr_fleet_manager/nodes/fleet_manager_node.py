@@ -173,6 +173,8 @@ class FleetManagerNode(Node):
         msg.final_yaw = float(c.final_yaw)
         msg.charge = bool(c.charge)
         msg.carrying = bool(c.carrying)
+        if c.node_ids and c.node_ids[-1] in self.graph.chargers:
+            msg.dock_id = c.node_ids[-1]
         self.route_pubs[c.robot_id].publish(msg)
 
     def _tick(self) -> None:

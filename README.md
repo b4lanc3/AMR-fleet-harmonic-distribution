@@ -8,7 +8,13 @@ Mô phỏng **đội 10–15 AMR (tối đa 22)** vận chuyển nội bộ tron
 * **Dashboard web** (http://localhost:8080): xem robot số mấy đang làm gì, đi route nào, ETA,
   task tiếp theo, hàng ưu tiên, pin, đang chờ hoặc nhường ai. Có thêm bản đồ trực tiếp và nhật ký điều phối.
 
-![layout](docs/layout.png)
+![Dashboard: AMR-10 (P14) đang né vào yield bay để nhường AMR-09 (P13) trên Đường Bắc 2 chiều](docs/dashboard.png)
+
+| Gazebo Harmonic: toàn cảnh nhà máy | Gazebo: AMR tại kệ linh kiện khu A, làn và ô đỗ |
+|---|---|
+| ![gazebo](docs/gazebo_overview.png) | ![closeup](docs/gazebo_closeup.png) |
+
+![RViz2: layout, đồ thị giao thông, nhãn robot (ID, hạng ưu tiên, task, trạng thái → đích, ETA, pin), lộ trình và lidar](docs/rviz_overview.png)
 
 | Yêu cầu | Cách đáp ứng |
 |---|---|
@@ -272,10 +278,16 @@ kẹt quá 150 s.
 
 Kết quả mô phỏng headless 30 phút (cấu hình mặc định):
 
-| Robot | Task xong | Thành phẩm nhập kho | Dây chuyền SX chạy | Va chạm | Né đường / đối đầu đã gỡ |
+| Robot | Task xong | Thành phẩm nhập kho | Dây chuyền SX chạy | Va chạm | Né đường (đối đầu đã gỡ) |
 |---|---|---|---|---|---|
-| 12 | ~95 | ~190 | 80–95 % | 0 | có |
-| 15 | ~100 | ~200 | 83–94 % | 0 | 7 / 7 |
+| 12 | ~100 | ~200 | 79–97 % | 0 | 0–2 |
+| 15 | ~100 | ~200 | 83–94 % | 0 | 7 |
+
+Đã chạy thử trên **Gazebo Harmonic (gz-sim 8)** với 3–6 robot (container không GPU, render phần mềm):
+robot spawn tại bãi đỗ, lidar `gpu_lidar` và camera RGB-D xuất dữ liệu, odometry trùng khung map, robot bám làn
+sai số khoảng 1 cm, hoàn thành chu trình lấy → chở → trả. Kịch bản đối đầu cũng chạy đúng trên vật lý Gazebo:
+AMR-03 (P3) tránh vào `Y.north.18`, AMR-02 (P2) đi qua, rồi AMR-03 bám lại route cũ tại `north.40`.
+Khoảng cách vật cản tính từ point cloud camera khớp lidar trong ±1 cm.
 
 ## 11. Hiệu năng và lưu ý
 

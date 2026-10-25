@@ -5,14 +5,14 @@ const STATE_VI = {
   OFFLINE: 'Mất kết nối', IDLE: 'Rảnh', PARKED: 'Đang đỗ', TO_PARK: 'Về bãi đỗ',
   TO_PICKUP: 'Đi lấy hàng', LOADING: 'Đang nhận hàng', TO_DROPOFF: 'Đang chở hàng',
   UNLOADING: 'Đang trả hàng', TO_CHARGER: 'Đi sạc', CHARGING: 'Đang sạc',
-  WAIT_CHARGER: 'Chờ dock sạc', YIELDING: 'Nhường đường',
+  WAIT_CHARGER: 'Chờ dock sạc', YIELDING: 'Nhường đường', DEMO: 'Demo đối đầu',
 };
 // [status role, icon]  - status colours always come with an icon + label
 const STATE_BADGE = {
   OFFLINE: ['critical', '✕'], IDLE: ['info', '○'], PARKED: ['info', 'P'], TO_PARK: ['info', '↩'],
   TO_PICKUP: ['info', '→'], LOADING: ['good', '⇩'], TO_DROPOFF: ['good', '▶'],
   UNLOADING: ['good', '⇧'], TO_CHARGER: ['serious', '⚡'], CHARGING: ['good', '⚡'],
-  WAIT_CHARGER: ['warning', '⏳'], YIELDING: ['warning', '⤳'],
+  WAIT_CHARGER: ['warning', '⏳'], YIELDING: ['warning', '⤳'], DEMO: ['serious', '⇄'],
 };
 const LINE_BADGE = {
   RUNNING: ['good', '▶', 'Đang chạy'], STARVED: ['warning', '◌', 'Thiếu đầu vào'],

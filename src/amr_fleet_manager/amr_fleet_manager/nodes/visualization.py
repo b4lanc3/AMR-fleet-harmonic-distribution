@@ -188,7 +188,7 @@ def dynamic_markers(snapshot: dict, robot_index: Dict[str, int], frame: str, sta
         tm = _marker('robot_labels', i, Marker.TEXT_VIEW_FACING, frame, stamp)
         tm.lifetime = life
         tm.pose.position = _p(x, y, 2.2)
-        tm.scale.z = 0.85
+        tm.scale.z = 0.65
         tm.color = _c(col, 1.0)
         goal = r['current_goal']
         eta = r['eta_task_s'] if r['task_id'] else r['eta_goal_s']
@@ -199,7 +199,8 @@ def dynamic_markers(snapshot: dict, robot_index: Dict[str, int], frame: str, sta
         elif r['blocked_by']:
             line3 += f" | wait {r['blocked_by']}"
         tid = f" {r['task_id']}" if r['task_id'] else ''
-        tm.text = f"{r['robot_id'].upper()} P{r['priority_rank']}{tid}\n{line2}\n{line3}"
+        name = r['robot_id'].upper().replace('_', '-')
+        tm.text = f"{name} P{r['priority_rank']}{tid}\n{line2}\n{line3}"
         arr.markers.append(tm)
         # colour disc under the robot
         d = _marker('robot_discs', i, Marker.CYLINDER, frame, stamp)

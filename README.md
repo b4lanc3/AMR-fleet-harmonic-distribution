@@ -36,7 +36,7 @@ Mô phỏng **đội 10–15 AMR (tối đa 30)** vận chuyển nội bộ tron
 | Map nhà máy đầy đủ (tường, sàn, hàng hoá, đèn…) | World sinh từ layout: ~5000 chi tiết (gộp thành mesh để render nhanh), 15 đèn điểm + đèn trần phát sáng. Bản đồ AMCL cắt đúng ở độ cao lidar |
 | Chu trình sản xuất | A (kit linh kiện) → B_IN → dây chuyền SX → SP chưa đóng gói xếp vào **thùng** ở B_OUT → C_IN → đóng gói từng SP → C_OUT → D |
 | Chạy Nav2 và AMCL | Mỗi robot: AMCL + controller_server + collision_monitor (+ planner/behavior/bt_navigator nếu `nav2_full_stack:=true`), một map_server chung |
-| 2 bánh chủ động + 4 bánh tự do, lidar 2D, camera 3D | URDF `amr_description`: diff-drive, 4 caster, `gpu_lidar` 180°, `rgbd_camera` (ảnh + depth + point cloud) |
+| 2 bánh chủ động + 4 bánh tự do, lidar 2D, camera 3D | URDF `amr_description`: diff-drive, 4 caster, một `gpu_lidar` **270°** ở mặt trước, `rgbd_camera` (ảnh + depth + point cloud) |
 | Xem robot số mấy làm gì, route nào, ETA, task tiếp theo | Dashboard web, nhãn trong RViz, `fleet_cli status`, topic `/fleet/state` |
 | Hàng ưu tiên **theo task**; gặp nhau thì robot ưu tiên thấp né rồi bám lại route cũ | `priority_mode: task` (mặc định): mức khẩn của task (theo trạng thái dây chuyền) → đang chở hàng → task chờ lâu. Robot ưu tiên thấp tránh vào yield bay, chờ robot ưu tiên cao đi qua rồi nhập lại **route cũ** |
 
@@ -135,11 +135,11 @@ chở chuyến đầu.
 |---|---|
 | Kích thước | 0.80 × 0.46 m thân (footprint Nav2 0.85 × 0.60 m), 45 kg |
 | Truyền động | 2 bánh chủ động Ø160 mm ở giữa thân (vi sai, cách nhau 0.52 m) + **4 bánh tự do** ở 4 góc |
-| Lidar 2D | `gpu_lidar` phía trước, cao 0.20 m, 180°, 361 tia, 0.08–20 m, 10 Hz → `/amr_XX/scan` |
+| Lidar 2D | Một `gpu_lidar` **270°** (±135°) giữa mặt trước, cao 0.20 m, 541 tia (0.5°), 0.08–20 m, 10 Hz → `/amr_XX/scan`. Thân xe có **khe quét** ở dải 0.17–0.23 m (lùi vào tới x = 0.18 m) nên tia ±135° đi dọc hai bên hông xe mà không chạm thân, như AMR thật |
 | Camera 3D | `rgbd_camera` 320×240, 5 Hz → `/amr_XX/camera/{image,depth_image,points,camera_info}` |
 | Odometry | DiffDrive (odometry bánh xe, có trôi như robot thật) → `/amr_XX/odom` + TF `amr_XX/odom → amr_XX/base_footprint`; vị trí thật giữ ở `/amr_XX/ground_truth` để đối chiếu |
 | Định vị | AMCL (likelihood field, 300–1500 hạt) trên `/map`, phát TF `map → amr_XX/odom` |
-| Khay hàng | Khớp tịnh tiến `cargo_joint`: khi robot chở hàng, kiện hàng nâng lên sàn xe (`/amr_XX/cargo_lift`) |
+| Khay hàng | Khớp tịnh tiến `cargo_joint`: khi robot chở hàng, kiện hàng nâng lên sàn xe (`/amr_XX/cargo_lift`); khi không chở, kiện hàng hạ xuống dưới sàn để không cắt mặt phẳng lidar |
 | Tốc độ | 1.0 m/s trên làn, 0.45 m/s trong lay-by/dock, quay tại chỗ khi lệch hướng lớn |
 | An toàn | `collision_monitor`: vùng dừng 0.30 m, vùng giảm tốc 0.85 m trước robot, từ lidar + point cloud camera |
 

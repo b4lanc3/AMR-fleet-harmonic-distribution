@@ -56,12 +56,13 @@
         <joint_name>right_wheel_joint</joint_name>
         <joint_name>cargo_joint</joint_name>
       </plugin>
-      <!-- cargo lift: 0 = hidden in the chassis, 0.235 = load on the deck.
+      <!-- cargo lift: -0.30 = no load (below the floor), 0.235 = load on the deck.
            Force PID (velocity commands do not move a prismatic joint in gz-sim 8). -->
       <plugin filename="gz-sim-joint-position-controller-system"
               name="gz::sim::systems::JointPositionController">
         <joint_name>cargo_joint</joint_name>
         <topic>/${ns}/cargo_lift</topic>
+        <initial_position>-0.30</initial_position>
         <p_gain>400</p_gain>
         <i_gain>40</i_gain>
         <d_gain>40</d_gain>
@@ -72,7 +73,7 @@
       </plugin>
     </gazebo>
 
-    <!-- 2D lidar: 180 deg in front of the robot -->
+    <!-- 2D lidar: 270 deg (+-135 deg) at the front of the robot, 0.5 deg resolution -->
     <gazebo reference="lidar_link">
       <sensor name="lidar" type="gpu_lidar">
         <always_on>true</always_on>
@@ -83,10 +84,10 @@
         <lidar>
           <scan>
             <horizontal>
-              <samples>361</samples>
+              <samples>541</samples>
               <resolution>1</resolution>
-              <min_angle>-1.5708</min_angle>
-              <max_angle>1.5708</max_angle>
+              <min_angle>-2.35619</min_angle>
+              <max_angle>2.35619</max_angle>
             </horizontal>
             <vertical>
               <samples>1</samples>

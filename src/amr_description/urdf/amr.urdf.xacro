@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <!--
   Factory AMR: differential drive with 2 driven wheels (centre of the chassis)
-  and 4 free (caster) wheels at the corners, one 2D lidar at the front and one
-  RGB-D (3D) camera.  Footprint 0.80 m x 0.56 m, payload deck at 0.29 m.
+  and 4 free (caster) wheels at the corners, one 270 deg 2D lidar at the front
+  and one RGB-D (3D) camera.  Footprint 0.80 m x 0.56 m, payload deck at 0.29 m.
 
   xacro args
     robot_name   namespace / frame prefix, e.g. amr_01   (frames: amr_01/base_link ...)
@@ -37,6 +37,10 @@
   <xacro:property name="caster_x" value="0.30"/>
   <xacro:property name="caster_y" value="0.17"/>
   <xacro:property name="mass_body" value="45.0"/>
+  <!-- scanner slot: height band around the lidar plane (0.20 m) and how far it is cut back -->
+  <xacro:property name="slot_z0" value="0.17"/>
+  <xacro:property name="slot_z1" value="0.23"/>
+  <xacro:property name="slot_x" value="0.18"/>
 
   <material name="body"><color rgba="$(arg color)"/></material>
   <material name="deck"><color rgba="0.20 0.21 0.23 1"/></material>
@@ -56,9 +60,27 @@
   <link name="${pfx}base_footprint"/>
 
   <link name="${pfx}base_link">
+    <!-- chassis in three layers: the middle layer (lidar plane +-3 cm) is cut back
+         to x = 0.18 so the 270 deg front scanner sees past the body up to +-135 deg
+         (like the scanner slot of a real AMR) -->
     <visual>
-      <origin xyz="0 0 ${clearance + body_h/2 - wheel_r}"/>
-      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+      <origin xyz="0 0 ${(clearance + slot_z0) / 2 - wheel_r}"/>
+      <geometry><box size="${body_l} ${body_w} ${slot_z0 - clearance}"/></geometry>
+      <material name="body"/>
+    </visual>
+    <visual>
+      <origin xyz="${(slot_x - body_l/2) / 2} 0 ${(slot_z0 + slot_z1) / 2 - wheel_r}"/>
+      <geometry><box size="${slot_x + body_l/2} ${body_w} ${slot_z1 - slot_z0}"/></geometry>
+      <material name="body"/>
+    </visual>
+    <visual>
+      <origin xyz="${slot_x + 0.003} 0 ${(slot_z0 + slot_z1) / 2 - wheel_r}"/>
+      <geometry><box size="0.006 ${body_w - 0.02} ${slot_z1 - slot_z0 - 0.01}"/></geometry>
+      <material name="sensor"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 ${(slot_z1 + clearance + body_h) / 2 - wheel_r}"/>
+      <geometry><box size="${body_l} ${body_w} ${clearance + body_h - slot_z1}"/></geometry>
       <material name="body"/>
     </visual>
     <visual>
@@ -193,7 +215,8 @@
   <joint name="lidar_joint" type="fixed">
     <parent link="${pfx}base_link"/>
     <child link="${pfx}lidar_link"/>
-    <!-- front centre, 0.20 m above the floor, in front of the bumper -->
+    <!-- front centre, 0.20 m above the floor, in front of the bumper; 270 deg field
+         of view through the scanner slot of the chassis -->
     <origin xyz="0.43 0 ${0.20 - wheel_r}"/>
   </joint>
 
@@ -221,8 +244,9 @@
   </joint>
 
   <!-- ============================================== cargo (visual load) -->
-  <!-- Lifted onto the deck while the AMR carries goods, hidden inside the
-       chassis otherwise (prismatic joint driven by a position controller). -->
+  <!-- Lifted onto the deck (0.235) while the AMR carries goods, lowered below the
+       floor (-0.30) otherwise: kept inside the chassis it would cross the lidar plane
+       in the scanner slot (prismatic joint driven by a position controller). -->
   <material name="cargo"><color rgba="0.74 0.56 0.34 1"/></material>
   <link name="${pfx}cargo_link">
     <visual>
@@ -244,7 +268,7 @@
     <child link="${pfx}cargo_link"/>
     <origin xyz="0 0 ${0.17 - wheel_r}"/>
     <axis xyz="0 0 1"/>
-    <limit lower="0.0" upper="0.24" effort="300" velocity="0.5"/>
+    <limit lower="-0.30" upper="0.24" effort="300" velocity="1.0"/>
   </joint>
 
   <xacro:if value="$(arg gazebo)">

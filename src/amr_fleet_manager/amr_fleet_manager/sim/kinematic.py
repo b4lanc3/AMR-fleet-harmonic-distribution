@@ -97,8 +97,8 @@ class KinematicWorld:
                 r.battery = max(0.0, r.battery - drain * dt)
 
     # ------------------------------------------------------------- lidar
-    def scan(self, rid: str, angle_min: float = -math.pi / 2, angle_max: float = math.pi / 2,
-             n: int = 181, range_max: float = 12.0) -> np.ndarray:
+    def scan(self, rid: str, angle_min: float = -0.75 * math.pi, angle_max: float = 0.75 * math.pi,
+             n: int = 271, range_max: float = 12.0) -> np.ndarray:
         """Ray cast from the lidar of robot rid against boxes and robots."""
         r = self.robots[rid]
         ox = r.x + LIDAR_X * math.cos(r.yaw)

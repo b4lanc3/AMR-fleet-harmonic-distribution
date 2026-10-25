@@ -31,6 +31,8 @@ from ..sim.headless import spawn_poses
 from ..sim.kinematic import KinematicWorld
 from .executor import spin_nodes
 
+FOV = 1.5 * math.pi        # 270 deg front lidar
+
 
 class KinematicSimNode(Node):
     def __init__(self) -> None:
@@ -40,7 +42,7 @@ class KinematicSimNode(Node):
         self.declare_parameter('robot_prefix', 'amr_')
         self.declare_parameter('rate', 30.0)
         self.declare_parameter('scan_rate', 10.0)
-        self.declare_parameter('scan_samples', 181)
+        self.declare_parameter('scan_samples', 271)        # 270 deg, 1 deg resolution
         gp = self.get_parameter
         path = gp('layout_file').value
         if not path:
@@ -59,7 +61,7 @@ class KinematicSimNode(Node):
         qos = QoSProfile(depth=10)
         sensor_qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.odom_pubs, self.scan_pubs, self.js_pubs = {}, {}, {}
-        self.cargo = {rid: 0.0 for rid in self.ids}
+        self.cargo = {rid: -0.30 for rid in self.ids}      # no load (see robot_agent)
         for rid in self.ids:
             self.create_subscription(Twist, f'/{rid}/cmd_vel',
                                      lambda m, r=rid: self._on_cmd(r, m), qos)
@@ -129,13 +131,13 @@ class KinematicSimNode(Node):
     def _scan(self) -> None:
         stamp = self.get_clock().now().to_msg()
         for rid in self.ids:
-            ranges = self.world.scan(rid, n=self.samples)
+            ranges = self.world.scan(rid, -FOV / 2, FOV / 2, n=self.samples)
             msg = LaserScan()
             msg.header.stamp = stamp
             msg.header.frame_id = f'{rid}/lidar_link'
-            msg.angle_min = -math.pi / 2
-            msg.angle_max = math.pi / 2
-            msg.angle_increment = math.pi / (self.samples - 1)
+            msg.angle_min = -FOV / 2
+            msg.angle_max = FOV / 2
+            msg.angle_increment = FOV / (self.samples - 1)
             msg.range_min = 0.08
             msg.range_max = 12.0
             r32 = np.where(ranges < 12.0, ranges, np.inf).astype(np.float32)

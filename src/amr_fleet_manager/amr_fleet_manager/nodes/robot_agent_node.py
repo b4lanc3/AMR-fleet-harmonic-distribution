@@ -39,7 +39,8 @@ from .executor import spin_nodes
 from .nav2_driver import Nav2Driver
 
 
-CARGO_UP = 0.235   # cargo_joint position with the load on the deck
+CARGO_UP = 0.235     # cargo_joint position with the load on the deck
+CARGO_DOWN = -0.30   # no load: below the floor (out of the 270 deg lidar plane)
 
 
 def yaw_from_quat(q) -> float:
@@ -187,7 +188,7 @@ class RobotAgent(Node):
         self.charge_enable = bool(msg.charge)
         if bool(msg.carrying) != self.carrying:
             self.carrying = bool(msg.carrying)
-            self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else 0.0))
+            self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else CARGO_DOWN))
 
     # ------------------------------------------------------------ control
     def _control(self) -> None:
@@ -254,7 +255,7 @@ class RobotAgent(Node):
         b.power_supply_status = (BatteryState.POWER_SUPPLY_STATUS_CHARGING if self.charging
                                  else BatteryState.POWER_SUPPLY_STATUS_DISCHARGING)
         self.batt_pub.publish(b)
-        self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else 0.0))
+        self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else CARGO_DOWN))
 
 
 def main_fleet(args=None) -> None:

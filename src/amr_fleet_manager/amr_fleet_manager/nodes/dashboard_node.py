@@ -21,7 +21,6 @@ from typing import Optional
 import rclpy
 from amr_fleet_msgs.srv import SetRobotPriority, SubmitTask
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
@@ -201,10 +200,10 @@ def _make_handler(node: DashboardNode):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = DashboardNode()
-    ex = MultiThreadedExecutor(num_threads=4)
-    ex.add_node(node)
+    # the HTTP server has its own threads; service futures complete in this
+    # single-threaded executor (MultiThreadedExecutor busy-spins on Jazzy)
     try:
-        ex.spin()
+        rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:

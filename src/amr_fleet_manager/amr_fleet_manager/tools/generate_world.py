@@ -262,9 +262,6 @@ def world_sdf(layout: dict, step: float = 0.004, rtf: float = 1.0) -> str:
     for cx, cy, sx, sy in ((W / 2, 0, W + wt, wt), (W / 2, H, W + wt, wt),
                            (0, H / 2, wt, H + wt), (W, H / 2, wt, H + wt)):
         walls.box(cx, cy, wall_h / 2, sx, sy, wall_h, 'wall', collide=True)
-    # roof trusses (visual only, high up)
-    for x in range(10, int(W), 10):
-        walls.box(float(x), H / 2, wall_h - 0.3, 0.3, H, 0.4, 'steel')
     out.append(walls.sdf())
 
     # floor markings: zones, lanes, pads

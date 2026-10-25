@@ -512,7 +512,7 @@ Visualization Manager:
         Y: 26.0
         Z: 0.0
       Field of View: 0.785
-      Near Clip Distance: 0.01
+      Near Clip Distance: 0.5
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
     Saved:

@@ -24,10 +24,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Optional, Sequence, Set, Tuple
 
-from .graph import CHARGER, INTERSECTION, LANE, PARKING, STATION, YIELD, TrafficGraph
+from .graph import CHARGER, LANE, PARKING, YIELD, TrafficGraph
 from .layout import build_graph
 from .production import Production
-from .tasks import (ASSIGNED, IN_TRANSIT, LOADING as T_LOADING, MANUAL, QUEUED,
+from .tasks import (IN_TRANSIT, LOADING as T_LOADING, MANUAL, QUEUED,
                     TO_PICKUP as T_TO_PICKUP, UNLOADING as T_UNLOADING, Task, TaskBook)
 from .traffic import TrafficAgent, TrafficController, TrafficParams
 

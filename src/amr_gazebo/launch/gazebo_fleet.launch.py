@@ -58,6 +58,20 @@ def _bridge_config(ids, cameras):
     return cfg
 
 
+def rsp_container(name, robots, use_sim_time):
+    """All robot_state_publishers of the fleet in one component container."""
+    from launch_ros.actions import ComposableNodeContainer
+    from launch_ros.descriptions import ComposableNode
+    return ComposableNodeContainer(
+        name=name, namespace='', package='rclcpp_components', executable='component_container',
+        output='log',
+        composable_node_descriptions=[ComposableNode(
+            package='robot_state_publisher', plugin='robot_state_publisher::RobotStatePublisher',
+            name='robot_state_publisher', namespace=rid,
+            parameters=[{'robot_description': urdf, 'frame_prefix': f'{rid}/',
+                         'use_sim_time': use_sim_time}]) for rid, urdf in robots])
+
+
 def launch_setup(context, *args, **kwargs):
     lc = lambda name: LaunchConfiguration(name).perform(context)  # noqa: E731
     n = int(lc('num_robots'))
@@ -97,15 +111,14 @@ def launch_setup(context, *args, **kwargs):
     xacro_file = os.path.join(get_package_share_directory('amr_description'), 'urdf',
                               'amr.urdf.xacro')
     delay = float(lc('spawn_delay'))
-    for i, (rid, (x, y, yaw)) in enumerate(zip(ids, poses)):
-        urdf = xacro.process_file(xacro_file, mappings={
+    descriptions = []
+    for i, rid in enumerate(ids):
+        descriptions.append((rid, xacro.process_file(xacro_file, mappings={
             'robot_name': rid, 'color': robot_rgba_str(i), 'gazebo': 'true',
             'camera': lc('camera'), 'camera_rate': lc('camera_rate'),
-            'lidar_rate': lc('lidar_rate')}).toxml()
-        actions.append(Node(package='robot_state_publisher', executable='robot_state_publisher',
-                            namespace=rid, name='robot_state_publisher', output='log',
-                            parameters=[{'robot_description': urdf, 'frame_prefix': f'{rid}/',
-                                         'use_sim_time': True}]))
+            'lidar_rate': lc('lidar_rate')}).toxml()))
+    actions.append(rsp_container('fleet_state_publishers', descriptions, True))
+    for i, (rid, (x, y, yaw)) in enumerate(zip(ids, poses)):
         spawn = Node(package='ros_gz_sim', executable='create', output='log',
                      arguments=['-world', 'amr_factory', '-name', rid,
                                 '-topic', f'/{rid}/robot_description',

@@ -1,12 +1,13 @@
 """On-board software of one AMR (runs once per robot, in its namespace).
 
-* subscribes  odom (nav_msgs/Odometry, map frame), scan (sensor_msgs/LaserScan)
+* subscribes  odom (nav_msgs/Odometry, map frame), scan (sensor_msgs/LaserScan),
+              camera/points (sensor_msgs/PointCloud2, RGB-D camera, optional),
               fleet/route (amr_fleet_msgs/RouteCommand)
 * publishes   cmd_vel (geometry_msgs/Twist), fleet/status (amr_fleet_msgs/RobotStatus),
               battery (sensor_msgs/BatteryState)
 
 The path follower drives along the waypoints granted by the fleet manager and
-applies the lidar safety field.  The battery is simulated here (drain while
+applies a safety field fused from the 2D lidar and the 3D camera.  The battery is simulated here (drain while
 driving, charge while docked and the fleet manager enables charging).
 """
 
@@ -20,7 +21,9 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import BatteryState, LaserScan
+import numpy as np
+from sensor_msgs.msg import BatteryState, LaserScan, PointCloud2
+from sensor_msgs_py import point_cloud2
 
 from ..core.controller import MODE_HOLD, MODE_IDLE, FollowerParams, PathFollower
 
@@ -30,8 +33,14 @@ def yaw_from_quat(q) -> float:
 
 
 class RobotAgent(Node):
-    def __init__(self) -> None:
-        super().__init__('robot_agent')
+    def __init__(self, namespace: str = None, overrides: dict = None) -> None:
+        kw = {}
+        if namespace is not None:
+            kw['namespace'] = namespace
+        if overrides:
+            from rclpy.parameter import Parameter
+            kw['parameter_overrides'] = [Parameter(k, value=v) for k, v in overrides.items()]
+        super().__init__('robot_agent', **kw)
         self.declare_parameter('robot_id', self.get_namespace().strip('/') or 'amr_01')
         self.declare_parameter('control_rate', 20.0)
         self.declare_parameter('status_rate', 10.0)
@@ -45,6 +54,12 @@ class RobotAgent(Node):
         self.declare_parameter('safety_half_angle_deg', 35.0)
         self.declare_parameter('command_timeout', 3.0)
         self.declare_parameter('simulate_battery', True)
+        # 3D camera safety: obstacles below / above the lidar plane
+        self.declare_parameter('use_camera_safety', True)
+        self.declare_parameter('camera_x', 0.40)        # camera position in base_footprint [m]
+        self.declare_parameter('camera_z', 0.31)
+        self.declare_parameter('camera_pitch', 0.12)    # rad, positive = looking down
+        self.declare_parameter('camera_timeout', 1.0)
 
         gp = self.get_parameter
         self.robot_id = gp('robot_id').value
@@ -64,6 +79,9 @@ class RobotAgent(Node):
         self.v_meas = 0.0
         self.w_meas = 0.0
         self.front_clearance = math.inf
+        self.lidar_clearance = math.inf
+        self.camera_clearance = math.inf
+        self.camera_stamp = None
         self.charge_enable = False
         self.charging = False
         self.last_cmd_time = None
@@ -74,6 +92,11 @@ class RobotAgent(Node):
         self.create_subscription(Odometry, 'odom', self._on_odom, qos)
         self.create_subscription(LaserScan, 'scan', self._on_scan, sensor_qos)
         self.create_subscription(RouteCommand, 'fleet/route', self._on_route, qos)
+        if gp('use_camera_safety').value:
+            self.cam_x, self.cam_z = gp('camera_x').value, gp('camera_z').value
+            self.cam_pitch = gp('camera_pitch').value
+            self.cam_timeout = gp('camera_timeout').value
+            self.create_subscription(PointCloud2, 'camera/points', self._on_points, sensor_qos)
         self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', qos)
         self.status_pub = self.create_publisher(RobotStatus, 'fleet/status', qos)
         self.batt_pub = self.create_publisher(BatteryState, 'battery', qos)
@@ -98,7 +121,39 @@ class RobotAgent(Node):
             if abs(ang) <= self.half_angle and msg.range_min < r < msg.range_max:
                 best = min(best, r)
             a += msg.angle_increment
-        self.front_clearance = best
+        self.lidar_clearance = best - 0.0
+        self._fuse()
+
+    def _on_points(self, msg: PointCloud2) -> None:
+        """Closest 3D obstacle in front of the robot from the RGB-D point cloud.
+
+        Gazebo publishes the cloud in the camera link frame (x forward, z up).
+        Points are rotated by the camera pitch, lifted to base height, and the
+        floor (z < 5 cm) and anything above 1.9 m are ignored."""
+        try:
+            pts = point_cloud2.read_points_numpy(msg, field_names=('x', 'y', 'z'), skip_nans=True)
+        except Exception:  # pragma: no cover - malformed cloud
+            return
+        if pts.size == 0:
+            self.camera_clearance = math.inf
+        else:
+            pts = pts[np.isfinite(pts).all(axis=1)][::3]
+            c, s_ = math.cos(self.cam_pitch), math.sin(self.cam_pitch)
+            x = c * pts[:, 0] + s_ * pts[:, 2]
+            z = -s_ * pts[:, 0] + c * pts[:, 2] + self.cam_z
+            y = pts[:, 1]
+            m = (z > 0.05) & (z < 1.9) & (np.abs(y) < 0.36) & (x > 0.10)
+            # report the distance as seen from the lidar position (same reference)
+            self.camera_clearance = float(x[m].min()) + self.cam_x - 0.43 if m.any() else math.inf
+        self.camera_stamp = self.get_clock().now()
+        self._fuse()
+
+    def _fuse(self) -> None:
+        cam = self.camera_clearance
+        if self.camera_stamp is not None and \
+                (self.get_clock().now() - self.camera_stamp).nanoseconds * 1e-9 > self.cam_timeout:
+            cam = math.inf
+        self.front_clearance = min(self.lidar_clearance, cam)
 
     def _on_route(self, msg: RouteCommand) -> None:
         self.last_cmd_time = self.get_clock().now()
@@ -160,6 +215,41 @@ class RobotAgent(Node):
         b.power_supply_status = (BatteryState.POWER_SUPPLY_STATUS_CHARGING if self.charging
                                  else BatteryState.POWER_SUPPLY_STATUS_DISCHARGING)
         self.batt_pub.publish(b)
+
+
+def main_fleet(args=None) -> None:
+    """All simulated robot agents in one process (one DDS participant).
+
+    ros2 run amr_fleet_manager fleet_agents --ros-args -p num_robots:=12
+    Real robots run `robot_agent` on board instead."""
+    rclpy.init(args=args)
+    cfg = Node('fleet_agents')
+    cfg.declare_parameter('num_robots', 12)
+    cfg.declare_parameter('robot_prefix', 'amr_')
+    cfg.declare_parameter('initial_batteries', [0.0])
+    n = cfg.get_parameter('num_robots').value
+    prefix = cfg.get_parameter('robot_prefix').value
+    batt = [b for b in cfg.get_parameter('initial_batteries').value]
+    use_sim_time = cfg.get_parameter('use_sim_time').value
+    nodes = []
+    for i in range(n):
+        rid = f'{prefix}{i + 1:02d}'
+        ov = {'robot_id': rid, 'use_sim_time': use_sim_time}
+        if i < len(batt) and batt[i] > 0:
+            ov['initial_battery'] = float(batt[i])
+        nodes.append(RobotAgent(namespace=rid, overrides=ov))
+    ex = rclpy.executors.SingleThreadedExecutor()
+    for nd in nodes + [cfg]:
+        ex.add_node(nd)
+    try:
+        ex.spin()
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
+    finally:
+        for nd in nodes + [cfg]:
+            nd.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 def main(args=None) -> None:

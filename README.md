@@ -202,6 +202,7 @@ chạy ngược chiều cùng lúc. Robot có hạng ưu tiên thấp hơn trán
 | `bridge_cameras` | `first` | `none` · `first` · `all`: camera nào được đưa sang ROS |
 | `priority_mode` | `dynamic` | `dynamic` · `static` |
 | `production` | `true` | `false`: tắt MES mô phỏng, robot chỉ chạy task thủ công / demo |
+| `agents` | `single_process` | `single_process`: mọi agent trong 1 process, nhẹ CPU khi mô phỏng · `per_robot`: mỗi robot 1 process như trên AMR thật |
 | `dashboard_port` | `8080` | Cổng web |
 
 ### Công cụ dòng lệnh
@@ -280,6 +281,8 @@ Kết quả mô phỏng headless 30 phút (cấu hình mặc định):
 
 * 15 robot × (lidar + camera RGB-D) trong Gazebo cần GPU. Trên máy yếu, có thể dùng `camera:=false`,
   `bridge_cameras:=none` hoặc giảm `camera_rate`, hoặc chạy `sim:=kinematic`.
+* Để nhẹ CPU, mặc định tất cả `robot_agent` chạy trong 1 process (`fleet_agents`) và mọi
+  `robot_state_publisher` nằm trong 1 component container: 15 agent chỉ tốn khoảng 0.6 lõi CPU.
 * Định vị dùng odometry "ground truth" của Gazebo (khung `map` ≡ khung world). Muốn dùng AMCL hay SLAM thì
   chỉ cần thay nguồn `/amr_XX/odom` cho `robot_agent` mà không phải sửa fleet manager.
 * Lidar dùng cho vùng an toàn cục bộ, còn tránh va chạm giữa các robot do fleet manager đảm bảo bằng đặt chỗ node.

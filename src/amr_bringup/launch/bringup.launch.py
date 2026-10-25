@@ -23,6 +23,20 @@ from amr_fleet_manager.sim.headless import robot_name
 from amr_fleet_manager.tools.rviz_config import make_rviz_config
 
 
+def rsp_container(robots):
+    """All robot_state_publishers of the fleet in one component container."""
+    from launch_ros.actions import ComposableNodeContainer
+    from launch_ros.descriptions import ComposableNode
+    return ComposableNodeContainer(
+        name='fleet_state_publishers', namespace='', package='rclcpp_components',
+        executable='component_container', output='log',
+        composable_node_descriptions=[ComposableNode(
+            package='robot_state_publisher', plugin='robot_state_publisher::RobotStatePublisher',
+            name='robot_state_publisher', namespace=rid,
+            parameters=[{'robot_description': urdf, 'frame_prefix': f'{rid}/'}])
+            for rid, urdf in robots])
+
+
 def launch_setup(context, *args, **kwargs):
     lc = lambda name: LaunchConfiguration(name).perform(context)  # noqa: E731
     sim = lc('sim')
@@ -50,12 +64,10 @@ def launch_setup(context, *args, **kwargs):
                             parameters=[{'layout_file': layout, 'num_robots': n}]))
         xacro_file = os.path.join(get_package_share_directory('amr_description'), 'urdf',
                                   'amr.urdf.xacro')
-        for i, rid in enumerate(ids):
-            urdf = xacro.process_file(xacro_file, mappings={
-                'robot_name': rid, 'color': robot_rgba_str(i), 'gazebo': 'false'}).toxml()
-            actions.append(Node(package='robot_state_publisher', executable='robot_state_publisher',
-                                namespace=rid, name='robot_state_publisher', output='log',
-                                parameters=[{'robot_description': urdf, 'frame_prefix': f'{rid}/'}]))
+        robots = [(rid, xacro.process_file(xacro_file, mappings={
+            'robot_name': rid, 'color': robot_rgba_str(i), 'gazebo': 'false'}).toxml())
+            for i, rid in enumerate(ids)]
+        actions.append(rsp_container(robots))
     else:
         raise RuntimeError(f'unknown sim "{sim}" (gazebo | kinematic)')
 
@@ -63,7 +75,7 @@ def launch_setup(context, *args, **kwargs):
         PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'fleet.launch.py')),
         launch_arguments={'num_robots': str(n), 'use_sim_time': sim_time, 'layout_file': layout,
                           'priority_mode': lc('priority_mode'), 'dashboard': lc('dashboard'),
-                          'production': lc('production'),
+                          'production': lc('production'), 'agents': lc('agents'),
                           'dashboard_port': lc('dashboard_port')}.items()))
 
     if lc('rviz').lower() == 'true':
@@ -93,6 +105,8 @@ def generate_launch_description():
         DeclareLaunchArgument('priority_mode', default_value='dynamic', description='dynamic | static'),
         DeclareLaunchArgument('production', default_value='true',
                               description='false: robots only run manual tasks / the demo'),
+        DeclareLaunchArgument('agents', default_value='single_process',
+                              description='single_process (simulation) | per_robot (like real AMRs)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         OpaqueFunction(function=launch_setup),

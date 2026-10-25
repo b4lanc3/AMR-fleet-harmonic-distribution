@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 from builtin_interfaces.msg import Duration
@@ -55,8 +55,8 @@ def static_markers(layout: dict, graph: TrafficGraph, frame: str, stamp) -> Mark
     W, H = layout.get('factory', {}).get('size', [100.0, 60.0])
     # floor
     m = _marker('floor', mid, Marker.CUBE, frame, stamp)
-    m.pose.position = _p(W / 2, H / 2, -0.03)
-    m.scale.x, m.scale.y, m.scale.z = W, H, 0.02
+    m.pose.position = _p(W / 2, H / 2, -0.10)
+    m.scale.x, m.scale.y, m.scale.z = W, H, 0.04
     m.color = _c((0.82, 0.82, 0.80), 1.0)
     arr.markers.append(m)
     # walls
@@ -73,8 +73,8 @@ def static_markers(layout: dict, graph: TrafficGraph, frame: str, stamp) -> Mark
         x0, y0, x1, y1 = z['rect']
         col = z.get('color', [0.5, 0.5, 0.5])
         m = _marker('zones', i, Marker.CUBE, frame, stamp)
-        m.pose.position = _p((x0 + x1) / 2, (y0 + y1) / 2, -0.015)
-        m.scale.x, m.scale.y, m.scale.z = x1 - x0, y1 - y0, 0.01
+        m.pose.position = _p((x0 + x1) / 2, (y0 + y1) / 2, -0.04)
+        m.scale.x, m.scale.y, m.scale.z = x1 - x0, y1 - y0, 0.02
         m.color = _c(col, 0.35)
         arr.markers.append(m)
         tm = _marker('zone_labels', i, Marker.TEXT_VIEW_FACING, frame, stamp)
@@ -187,8 +187,8 @@ def dynamic_markers(snapshot: dict, robot_index: Dict[str, int], frame: str, sta
         # label
         tm = _marker('robot_labels', i, Marker.TEXT_VIEW_FACING, frame, stamp)
         tm.lifetime = life
-        tm.pose.position = _p(x, y, 1.6)
-        tm.scale.z = 0.42
+        tm.pose.position = _p(x, y, 2.2)
+        tm.scale.z = 0.85
         tm.color = _c(col, 1.0)
         goal = r['current_goal']
         eta = r['eta_task_s'] if r['task_id'] else r['eta_goal_s']
@@ -205,7 +205,7 @@ def dynamic_markers(snapshot: dict, robot_index: Dict[str, int], frame: str, sta
         d = _marker('robot_discs', i, Marker.CYLINDER, frame, stamp)
         d.lifetime = life
         d.pose.position = _p(x, y, 0.01)
-        d.scale.x = d.scale.y = 1.15
+        d.scale.x = d.scale.y = 1.6
         d.scale.z = 0.02
         d.color = _c(col, 0.55)
         arr.markers.append(d)

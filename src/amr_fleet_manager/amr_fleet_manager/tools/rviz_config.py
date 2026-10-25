@@ -80,7 +80,7 @@ def make_rviz_config(ids: List[str], camera_robot: str = '', center=(50.0, 30.0)
                 'Current': {'Class': 'rviz_default_plugins/Orbit', 'Name': 'Factory',
                             'Distance': 78.0, 'Pitch': 1.05, 'Yaw': 4.71,
                             'Focal Point': {'X': center[0], 'Y': center[1] - 4.0, 'Z': 0.0},
-                            'Field of View': 0.785, 'Near Clip Distance': 0.01,
+                            'Field of View': 0.785, 'Near Clip Distance': 0.5,
                             'Target Frame': '<Fixed Frame>', 'Value': 'Orbit (rviz)'},
                 'Saved': [
                     {'Class': 'rviz_default_plugins/TopDownOrtho', 'Name': 'Top down',

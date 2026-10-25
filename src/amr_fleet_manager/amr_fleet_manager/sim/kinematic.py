@@ -9,8 +9,8 @@ sees the walls, the static objects of the layout and the other robots.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Dict, Optional, Sequence
 
 import numpy as np
 

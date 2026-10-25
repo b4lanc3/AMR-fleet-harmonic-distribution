@@ -29,12 +29,22 @@ def launch_setup(context, *args, **kwargs):
                              'priority_mode': lc('priority_mode'),
                              'production': lc('production').lower() == 'true',
                              'use_sim_time': sim_time}])]
-    for i in range(n):
-        rid = robot_name(i)
+    if lc('agents') == 'per_robot':
+        # one process per robot, like on real AMRs
+        for i in range(n):
+            rid = robot_name(i)
+            actions.append(Node(
+                package='amr_fleet_manager', executable='robot_agent', name='robot_agent',
+                namespace=rid, output='log',
+                parameters=[params, {'robot_id': rid, 'initial_battery': initial_battery(i),
+                                     'use_sim_time': sim_time}]))
+    else:
+        # all agents in one process: one DDS participant, much less CPU in simulation
         actions.append(Node(
-            package='amr_fleet_manager', executable='robot_agent', name='robot_agent',
-            namespace=rid, output='log',
-            parameters=[params, {'robot_id': rid, 'initial_battery': initial_battery(i),
+            package='amr_fleet_manager', executable='fleet_agents', name='fleet_agents',
+            output='screen',
+            parameters=[params, {'num_robots': n,
+                                 'initial_batteries': [initial_battery(i) for i in range(n)],
                                  'use_sim_time': sim_time}]))
     if lc('dashboard').lower() == 'true':
         actions.append(Node(
@@ -53,6 +63,8 @@ def generate_launch_description():
                               description='dynamic | static'),
         DeclareLaunchArgument('production', default_value='true',
                               description='false: no MES tasks (manual tasks / demo only)'),
+        DeclareLaunchArgument('agents', default_value='single_process',
+                              description='single_process | per_robot'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         OpaqueFunction(function=launch_setup),

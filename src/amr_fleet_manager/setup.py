@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'fleet_manager = amr_fleet_manager.nodes.fleet_manager_node:main',
             'robot_agent = amr_fleet_manager.nodes.robot_agent_node:main',
+            'fleet_agents = amr_fleet_manager.nodes.robot_agent_node:main_fleet',
             'kinematic_sim = amr_fleet_manager.nodes.kinematic_sim_node:main',
             'dashboard = amr_fleet_manager.nodes.dashboard_node:main',
             'fleet_cli = amr_fleet_manager.tools.fleet_cli:main',

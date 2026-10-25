@@ -6,7 +6,8 @@
     state_rate: 2.0            # /fleet/state + dashboard snapshot [Hz]
     marker_rate: 4.0           # RViz markers [Hz]
     heartbeat: 1.0             # re-send unchanged route commands every N s
-    priority_mode: dynamic     # dynamic: task priority + cargo + battery + waiting time + base rank
+    priority_mode: task        # task   : priority of the task (URGENT>HIGH>NORMAL>LOW), loaded first, older first
+                               # dynamic: task + cargo + battery + waiting time + base rank
                                # static : base rank only (amr_01 = highest)
     battery_low: 30.0          # go charging after the current task
     battery_critical: 15.0     # abort an empty trip and go charging now

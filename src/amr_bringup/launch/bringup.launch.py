@@ -102,7 +102,7 @@ def generate_launch_description():
         DeclareLaunchArgument('camera', default_value='true', description='RGB-D camera sensors'),
         DeclareLaunchArgument('bridge_cameras', default_value='first',
                               description='none | first | all  (camera topics bridged to ROS)'),
-        DeclareLaunchArgument('priority_mode', default_value='dynamic', description='dynamic | static'),
+        DeclareLaunchArgument('priority_mode', default_value='task', description='task | dynamic | static'),
         DeclareLaunchArgument('production', default_value='true',
                               description='false: robots only run manual tasks / the demo'),
         DeclareLaunchArgument('agents', default_value='single_process',

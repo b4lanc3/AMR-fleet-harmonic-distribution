@@ -58,7 +58,7 @@ class FleetManagerNode(Node):
         self.declare_parameter('marker_rate', 4.0)
         self.declare_parameter('heartbeat', 1.0)
         self.declare_parameter('frame_id', 'map')
-        self.declare_parameter('priority_mode', 'dynamic')
+        self.declare_parameter('priority_mode', 'task')
         self.declare_parameter('battery_low', 30.0)
         self.declare_parameter('battery_critical', 15.0)
         self.declare_parameter('battery_full', 95.0)

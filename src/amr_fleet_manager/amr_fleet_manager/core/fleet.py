@@ -87,7 +87,7 @@ class FleetParams:
     status_timeout: float = 5.0
     nominal_speed: float = 0.8
     turn_time_per_rad: float = 0.8
-    priority_mode: str = 'dynamic'     # dynamic | static
+    priority_mode: str = 'task'        # task | dynamic | static
     w_task: float = 1000.0
     w_cargo: float = 400.0
     w_charge: float = 600.0
@@ -800,6 +800,13 @@ class FleetCore:
     def _priorities(self) -> None:
         p = self.p
         N = len(self.robots)
+        # MES tasks follow the state of the line they serve
+        for t in self.tasks.active():
+            if t.type != MANUAL:
+                t.priority = self.production.urgency(t)
+        if p.priority_mode == 'task':
+            self._task_priorities()
+            return
         for r in self.robots.values():
             base = (N + 1 - r.base_rank) * p.w_base
             s = 0.0
@@ -819,6 +826,34 @@ class FleetCore:
             r.priority = r.priority_static + aging
         # the displayed rank is the one used to decide who gives way; the waiting
         # time bonus only re-orders grants at intersections (anti-starvation)
+        for i, r in enumerate(sorted(self.robots.values(),
+                                     key=lambda x: (-x.priority_static, x.base_rank))):
+            r.rank = i + 1
+
+    def _task_priorities(self) -> None:
+        """Priority follows the task: level of the task (URGENT > HIGH > NORMAL
+        > LOW), then robots already carrying the goods of their task, then the
+        older task.  Robots without a task come last, except a robot that must
+        reach a charger with a critical battery.  The robot id only breaks ties."""
+        p = self.p
+        N = len(self.robots)
+        for r in self.robots.values():
+            js = r.job_state
+            t = r.task
+            s = 0.0
+            if t is not None and js in TASK_STATES:
+                s = 1000.0 * (t.priority + 1)
+                if r.cargo:
+                    s += 400.0
+                s += min(self.now - t.created, 600.0) * 0.5
+            elif js in (TO_CHARGER, WAIT_CHARGER):
+                s = 3500.0 if r.battery < p.battery_critical else 300.0
+            elif js == DEMO:
+                s = 1000.0
+            s += (N + 1 - r.base_rank) * 0.01   # deterministic tie-break only
+            r.priority_static = s
+            aging = min(r.waiting(self.now) * p.w_aging, p.aging_cap) if r.stall_since else 0.0
+            r.priority = s + aging
         for i, r in enumerate(sorted(self.robots.values(),
                                      key=lambda x: (-x.priority_static, x.base_rank))):
             r.rank = i + 1
@@ -988,6 +1023,9 @@ class FleetCore:
                 nv = g.nodes[v]
                 if not nv.transit and nv.kind not in (YIELD, PARKING):
                     continue
+                # same rule as the grant: the node and everything the edge sweeps
+                if self.traffic.free_for(L.id, {v} | g.sweep(u, v)) is not None:
+                    continue
                 nd = d + g.edge_cost(e)
                 pu = parent.get(u)
                 if pu is not None:
@@ -1045,7 +1083,10 @@ class FleetCore:
                 if L.state == YIELDING and ctx is not None and L.route \
                         and self._stalled_for(L) > 6.0 and self.now - ctx.get('replanned', -1e9) > 6.0:
                     ctx['replanned'] = self.now
-                    self._start_yield(L, ctx['to'], ctx.get('reason', 'ưu tiên'))
+                    ctx['attempts'] = ctx.get('attempts', 0) + 1
+                    if ctx['attempts'] >= 2 or not self._start_yield(
+                            L, ctx['to'], ctx.get('reason', 'ưu tiên')):
+                        self._swap_yield(L)
                 continue
             arrived = ctx.get('arrived') or self.now
             ctx['arrived'] = arrived
@@ -1071,6 +1112,21 @@ class FleetCore:
                     break
             if clear or self.now - arrived > self.p.yield_timeout:
                 self._finish_yield(L, plan)
+
+    def _swap_yield(self, L: RobotRecord) -> None:
+        """L cannot get out of the way: let it resume and ask the robot(s) it
+        was yielding to (normally higher priority) to back off instead."""
+        ctx = L.yield_ctx or {}
+        to = set(ctx.get('to', set()))
+        self._finish_yield(L, None)   # re-plans L towards its original goal
+        for hid in sorted(to, key=lambda i: self.robots[i].priority_static):
+            H = self.robots.get(hid)
+            if H is None or H.state in WORK_STATES or H.yield_ctx is not None:
+                continue
+            if self._start_yield(H, {L.id}, reason='robot kia không thể tránh',
+                                 note=f'{L.id} không có chỗ tránh → {H.id} lùi lại nhường'):
+                self.deadlocks += 1
+                return
 
     def _rejoin_plan(self, L: RobotRecord) -> Optional[Tuple[List[int], int]]:
         """Path from the refuge back onto the original route (and the index)."""

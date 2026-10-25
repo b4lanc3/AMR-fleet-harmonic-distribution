@@ -23,6 +23,45 @@ Vec = Tuple[float, float]
 _KEY_RANK = {'end': 3, 'cross': 4, 'attach': 2, 'fill': 0}
 
 
+def line_objects(layout: dict) -> List[dict]:
+    """Footprints of the production / packaging lines (conveyor + machines).
+
+    Every line runs north (y_in, input) -> south (y_out, output).  The world
+    generator dresses these footprints with detailed geometry and moving
+    products; the traffic graph, maps and simulators use the rectangles."""
+    out: List[dict] = []
+    for ln in layout.get('lines', []) or []:
+        x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
+        mid = (yi + yo) / 2.0
+        lid = ln['id']
+
+        def add(kind, x0, y0, x1, y1, h, **kw):
+            o = {'kind': kind, 'rect': [x0, y0, x1, y1], 'height': h, 'line': lid}
+            o.update(kw)
+            out.append(o)
+
+        add('line_conveyor', x - 0.5, yo, x + 0.5, yi, 0.9, flow=[[x, yi], [x, yo]])
+        if ln.get('kind', 'production') == 'production':
+            add('cnc', x - 3.4, yi - 7.5, x - 0.8, yi - 3.5, 2.4)
+            add('control_cabinet', x + 0.9, yi - 3.0, x + 2.4, yi - 2.2, 2.0)
+            add('robot_cell', x + 0.8, mid - 1.0, x + 3.4, mid + 2.5, 2.0)
+            add('assembly', x - 3.2, mid - 5.5, x - 0.8, mid - 2.0, 1.0)
+            add('qc_gate', x - 0.9, yo + 4.6, x + 0.9, yo + 5.4, 2.2)
+            add('boxing', x + 0.8, yo + 1.2, x + 3.2, yo + 4.0, 1.8)
+        else:
+            add('unboxer', x - 3.0, yi - 5.0, x - 0.8, yi - 2.0, 1.6)
+            add('wrapper', x - 1.4, mid + 0.5, x + 1.4, mid + 4.5, 2.2)
+            add('case_packer', x + 0.8, mid - 4.5, x + 3.2, mid - 1.0, 2.0)
+            add('palletizer', x - 3.4, yo + 1.0, x - 0.8, yo + 4.5, 2.6)
+            add('pallet_out', x + 0.8, yo + 0.6, x + 2.2, yo + 2.0, 1.2)
+    return out
+
+
+def static_objects(layout: dict) -> List[dict]:
+    """Layout objects + line footprints (everything but station side objects)."""
+    return list(layout.get('objects', []) or []) + line_objects(layout)
+
+
 def load_layout(path: str) -> dict:
     with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
@@ -219,7 +258,7 @@ class LayoutBuilder:
     def _plan_yield_bays(self) -> None:
         self.yield_specs = []
         explicit = self.layout.get('yield_bays', []) or []
-        objects = self.layout.get('objects', []) or []
+        objects = static_objects(self.layout)
         W, H = self.size
         specials = self._special_points()
         placed: List[Vec] = []
@@ -254,10 +293,11 @@ class LayoutBuilder:
                 continue
             spacing = float(ln.yield_spacing or self.yield_spacing)
             cross_ts = [k for k, kind in ln.keys.items() if kind in ('cross', 'end')]
-            # lay-bys and docks are on the right side: a bay on the left side
-            # only needs to keep its own nodes apart from them
+            # lay-bys and docks are on the right side: a bay on the same side
+            # must stay clear of them; on the other side its lane nodes must
+            # either coincide with existing ones or keep a normal spacing
             same_side = side in ('right', 'both')
-            min_gap = 2.5 if same_side else 1.0
+            min_gap = 2.5 if same_side else 1.9
             other_keys = [k for k, kind in ln.keys.items() if kind == 'attach']
             last = -math.inf
             t = 2 * self.bay_offset + 1.0
@@ -265,7 +305,11 @@ class LayoutBuilder:
                 good = (t - last >= spacing
                         and all(abs(t - c) >= 2 * self.bay_offset + 0.5 for c in cross_ts)
                         and all(min(abs(t + o - k) for o in (-self.bay_offset, 0.0, self.bay_offset))
-                                >= min_gap for k in other_keys))
+                                >= min_gap
+                                or (not same_side and all(
+                                    abs(t + o - k) < 0.05 or abs(t + o - k) >= min_gap
+                                    for o in (-self.bay_offset, 0.0, self.bay_offset)))
+                                for k in other_keys))
                 if good:
                     sides = ['right', 'left'] if side == 'both' else [side]
                     for sd in sides:
@@ -438,7 +482,7 @@ def station_objects(layout: dict, graph: TrafficGraph) -> List[dict]:
 
 
 def all_objects(layout: dict, graph: TrafficGraph) -> List[dict]:
-    return list(layout.get('objects', []) or []) + station_objects(layout, graph)
+    return static_objects(layout) + station_objects(layout, graph)
 
 
 def graph_to_dict(graph: TrafficGraph) -> dict:

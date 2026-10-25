@@ -101,6 +101,16 @@ class Production:
                 output_capacity=int(c.get('output_capacity', 2)),
                 pallet_capacity=int(c.get('pallet_capacity', box_cap)))
             self.packers[pk.id] = pk
+        # the factory is already running when the simulation starts: staggered
+        # work in progress so every line is busy from t = 0
+        if process.get('initial_wip', True):
+            n = max(len(self.lines), 1)
+            for i, ln in enumerate(self.lines.values()):
+                ln.material = ln.products_per_kit // 2
+                ln.box_fill = (ln.box_capacity * (i + 1)) // (n + 1)
+            for pk in self.packers.values():
+                pk.input_boxes = min(1, pk.input_capacity)
+                pk.current = (pk.pallet_capacity * 2) // 3
         self.stored: Dict[str, int] = {d: 0 for d in self.storage}
         self.shipped = 0
         self.elapsed = 0.0
@@ -282,6 +292,28 @@ class Production:
                 self.shipped += self.stored[task.dropoff]
                 self.stored[task.dropoff] = 0
                 self.events.append(f'{task.dropoff}: kho day -> xuat hang')
+
+    def urgency(self, task: Task) -> int:
+        """Current priority level (0..3) of an MES task from the line state:
+        HIGH (2) when the line it serves is about to starve or is blocked."""
+        if task.type == KIT_DELIVERY:
+            ln = self.lines.get(task.meta.get('line', ''))
+            if ln is not None and ln.input_kits == 0 and ln.material <= 2:
+                return 2
+        elif task.type == BOX_TRANSFER:
+            ln = self.lines.get(task.meta.get('line', ''))
+            if ln is not None and ln.out_boxes >= ln.output_capacity:
+                return 2
+            pk = self.packers.get(task.meta.get('packer', ''))
+            if pk is not None and pk.status == STARVED:
+                return 2
+        elif task.type == FG_DELIVERY:
+            pk = self.packers.get(task.meta.get('packer', ''))
+            if pk is not None and pk.out_pallets >= pk.output_capacity:
+                return 2
+        else:
+            return task.priority
+        return 1
 
     def on_cancel(self, task: Task) -> None:
         """Task cancelled before pick-up: roll the bookkeeping back."""

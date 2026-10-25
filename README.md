@@ -184,6 +184,14 @@ ros2 launch amr_bringup bringup.launch.py priority_mode:=static
 
 Mở **http://localhost:8080** để xem dashboard.
 
+### Xem robot né đường ngay
+
+Trong vận hành bình thường, làn 1 chiều và định tuyến tránh ùn tắc khiến các cuộc đối đầu ít xảy ra (đó là
+mục tiêu của mạng lưới). Để xem tận mắt cơ chế né, bấm **"Demo né đường"** trên dashboard hoặc chạy
+`ros2 run amr_fleet_manager fleet_cli demo`. Hai robot rảnh được đưa ra hai đầu Đường Bắc (làn 2 chiều) rồi
+chạy ngược chiều cùng lúc. Robot có hạng ưu tiên thấp hơn tránh vào yield bay, chờ robot kia đi qua rồi
+**bám lại route cũ**. Mọi bước được ghi vào nhật ký với nhãn "Né đường".
+
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
 | `sim` | `gazebo` | `gazebo` hoặc `kinematic` |
@@ -193,6 +201,7 @@ Mở **http://localhost:8080** để xem dashboard.
 | `camera` | `true` | Mô phỏng camera RGB-D trên mọi robot |
 | `bridge_cameras` | `first` | `none` · `first` · `all`: camera nào được đưa sang ROS |
 | `priority_mode` | `dynamic` | `dynamic` · `static` |
+| `production` | `true` | `false`: tắt MES mô phỏng, robot chỉ chạy task thủ công / demo |
 | `dashboard_port` | `8080` | Cổng web |
 
 ### Công cụ dòng lệnh
@@ -202,6 +211,7 @@ ros2 run amr_fleet_manager fleet_cli status              # bảng trạng thái 
 ros2 run amr_fleet_manager fleet_cli task A2 D1 --priority 3
 ros2 run amr_fleet_manager fleet_cli rank amr_07 1       # cho amr_07 hạng ưu tiên cơ bản cao nhất
 ros2 run amr_fleet_manager fleet_cli pause | resume
+ros2 run amr_fleet_manager fleet_cli demo                # kịch bản đối đầu → né → bám lại route cũ
 ros2 run amr_fleet_manager fleet_cli pause_robot amr_03
 ros2 run amr_fleet_manager headless_sim --robots 15 --minutes 60   # mô phỏng nhanh không ROS/Gazebo
 ```
@@ -235,6 +245,7 @@ hộp nâu trên robot nghĩa là đang chở hàng.
 | `/fleet/submit_task` | `SubmitTask` | Tạo task thủ công |
 | `/fleet/set_robot_priority` | `SetRobotPriority` | Đổi hạng ưu tiên cơ bản / tạm dừng robot |
 | `/fleet/pause` | `std_srvs/SetBool` | Tạm dừng / tiếp tục cả đội |
+| `/fleet/demo_head_on` | `std_srvs/Trigger` | Kịch bản demo: 2 robot đối đầu trên Đường Bắc |
 
 ## 9. Tuỳ biến nhà máy
 

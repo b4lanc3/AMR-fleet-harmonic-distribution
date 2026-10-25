@@ -25,7 +25,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web')
 MIME = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
@@ -54,6 +54,7 @@ class DashboardNode(Node):
         self.cli_prio = self.create_client(SetRobotPriority, '/fleet/set_robot_priority',
                                            callback_group=cb)
         self.cli_pause = self.create_client(SetBool, '/fleet/pause', callback_group=cb)
+        self.cli_demo = self.create_client(Trigger, '/fleet/demo_head_on', callback_group=cb)
         port = self.get_parameter('port').value
         host = self.get_parameter('host').value
         handler = _make_handler(self)
@@ -177,6 +178,11 @@ def _make_handler(node: DashboardNode):
                     req.set_paused = True
                     req.paused = bool(body['paused'])
                 res = node.call(node.cli_prio, req)
+                if res is None:
+                    return self._json({'ok': False, 'message': 'fleet manager not reachable'}, 503)
+                return self._json({'ok': res.success, 'message': res.message})
+            if path == '/api/demo':
+                res = node.call(node.cli_demo, Trigger.Request())
                 if res is None:
                     return self._json({'ok': False, 'message': 'fleet manager not reachable'}, 503)
                 return self._json({'ok': res.success, 'message': res.message})

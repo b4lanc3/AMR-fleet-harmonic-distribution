@@ -4,6 +4,7 @@
   ros2 run amr_fleet_manager fleet_cli task A1 D2 --priority 2
   ros2 run amr_fleet_manager fleet_cli rank amr_07 1     # make amr_07 the top base rank
   ros2 run amr_fleet_manager fleet_cli pause | resume
+  ros2 run amr_fleet_manager fleet_cli demo              # head-on / yield demonstration
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import rclpy
 from amr_fleet_msgs.msg import FleetState
 from amr_fleet_msgs.srv import SetRobotPriority, SubmitTask
 from rclpy.node import Node
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 
 def fmt_s(s: float) -> str:
@@ -62,6 +63,7 @@ def main(argv=None) -> None:
     p.add_argument('robot')
     sub.add_parser('pause')
     sub.add_parser('resume')
+    sub.add_parser('demo', help='two robots meet head-on on the two-way north aisle')
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
     rclpy.init()
@@ -86,6 +88,8 @@ def main(argv=None) -> None:
             print(_call(node, SetRobotPriority, '/fleet/set_robot_priority', **kw))
         elif args.cmd in ('pause', 'resume'):
             print(_call(node, SetBool, '/fleet/pause', data=args.cmd == 'pause'))
+        elif args.cmd == 'demo':
+            print(_call(node, Trigger, '/fleet/demo_head_on'))
     except KeyboardInterrupt:
         pass
     finally:

@@ -26,7 +26,9 @@ def launch_setup(context, *args, **kwargs):
         package='amr_fleet_manager', executable='fleet_manager', name='fleet_manager',
         output='screen',
         parameters=[params, {'layout_file': layout, 'num_robots': n,
-                             'priority_mode': lc('priority_mode'), 'use_sim_time': sim_time}])]
+                             'priority_mode': lc('priority_mode'),
+                             'production': lc('production').lower() == 'true',
+                             'use_sim_time': sim_time}])]
     for i in range(n):
         rid = robot_name(i)
         actions.append(Node(
@@ -49,6 +51,8 @@ def generate_launch_description():
         DeclareLaunchArgument('layout_file', default_value=''),
         DeclareLaunchArgument('priority_mode', default_value='dynamic',
                               description='dynamic | static'),
+        DeclareLaunchArgument('production', default_value='true',
+                              description='false: no MES tasks (manual tasks / demo only)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         OpaqueFunction(function=launch_setup),

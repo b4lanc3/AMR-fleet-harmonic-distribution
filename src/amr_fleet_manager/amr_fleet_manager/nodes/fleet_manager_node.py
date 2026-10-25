@@ -15,6 +15,7 @@ Services:
   /fleet/submit_task        amr_fleet_msgs/SubmitTask
   /fleet/set_robot_priority amr_fleet_msgs/SetRobotPriority
   /fleet/pause              std_srvs/SetBool
+  /fleet/demo_head_on       std_srvs/Trigger   (two robots meet head-on on the north aisle)
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from tf2_ros import StaticTransformBroadcaster
 from visualization_msgs.msg import MarkerArray
 
@@ -64,6 +65,7 @@ class FleetManagerNode(Node):
         self.declare_parameter('battery_opportunistic', 50.0)
         self.declare_parameter('station_capacity', 2)
         self.declare_parameter('start_paused', False)
+        self.declare_parameter('production', True)
 
         gp = self.get_parameter
         layout_file = gp('layout_file').value
@@ -82,7 +84,8 @@ class FleetManagerNode(Node):
                              battery_critical=gp('battery_critical').value,
                              battery_full=gp('battery_full').value,
                              battery_opportunistic=gp('battery_opportunistic').value,
-                             station_capacity=gp('station_capacity').value)
+                             station_capacity=gp('station_capacity').value,
+                             production=gp('production').value)
         self.graph = build_graph(self.layout)
         self.core = FleetCore(self.layout, ids, params, graph=self.graph)
         if gp('start_paused').value:
@@ -112,6 +115,7 @@ class FleetManagerNode(Node):
         self.create_service(SubmitTask, '/fleet/submit_task', self._srv_submit)
         self.create_service(SetRobotPriority, '/fleet/set_robot_priority', self._srv_priority)
         self.create_service(SetBool, '/fleet/pause', self._srv_pause)
+        self.create_service(Trigger, '/fleet/demo_head_on', self._srv_demo)
 
         self.static_tf = StaticTransformBroadcaster(self)
         self._event_seq = 0
@@ -305,6 +309,10 @@ class FleetManagerNode(Node):
             msgs.append(f'paused={req.paused}')
         res.success = ok
         res.message = ', '.join(msgs) if ok else f'unknown robot {req.robot_id}'
+        return res
+
+    def _srv_demo(self, req, res):
+        res.success, res.message = self.core.start_demo_head_on()
         return res
 
     def _srv_pause(self, req, res):

@@ -67,3 +67,18 @@ def test_head_on_lower_priority_robot_yields_and_rejoins(layout, graph):
     assert sim.metrics.collisions == 0
     texts = ' '.join(e['text'] for e in fleet.events)
     assert 'bám lại route cũ' in texts
+
+
+def test_demo_head_on_scenario(layout):
+    sim = HeadlessSim(layout, 4)
+    sim.fleet.production.lines.clear()
+    sim.fleet.production.packers.clear()
+    sim.run(30)
+    ok, msg = sim.fleet.start_demo_head_on()
+    assert ok, msg
+    sim.run(sim.t + 420)
+    assert sim.fleet.demo is None, 'demo did not finish'
+    assert sim.fleet.yields >= 1
+    assert sim.metrics.collisions == 0
+    texts = ' '.join(e['text'] for e in sim.fleet.events)
+    assert 'bám lại route cũ' in texts and 'Demo đối đầu hoàn tất' in texts

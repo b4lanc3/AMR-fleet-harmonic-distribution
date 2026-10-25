@@ -63,6 +63,7 @@ def launch_setup(context, *args, **kwargs):
         PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'fleet.launch.py')),
         launch_arguments={'num_robots': str(n), 'use_sim_time': sim_time, 'layout_file': layout,
                           'priority_mode': lc('priority_mode'), 'dashboard': lc('dashboard'),
+                          'production': lc('production'),
                           'dashboard_port': lc('dashboard_port')}.items()))
 
     if lc('rviz').lower() == 'true':
@@ -90,6 +91,8 @@ def generate_launch_description():
         DeclareLaunchArgument('bridge_cameras', default_value='first',
                               description='none | first | all  (camera topics bridged to ROS)'),
         DeclareLaunchArgument('priority_mode', default_value='dynamic', description='dynamic | static'),
+        DeclareLaunchArgument('production', default_value='true',
+                              description='false: robots only run manual tasks / the demo'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         OpaqueFunction(function=launch_setup),

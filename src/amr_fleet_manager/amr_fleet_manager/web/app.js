@@ -22,6 +22,8 @@ const ZONE_VI = {
   A: 'Khu A · Kho linh kiện', B: 'Khu B · Dây chuyền sản xuất', C: 'Khu C · Dây chuyền đóng gói',
   D: 'Khu D · Kho thành phẩm', CHG: 'Trạm sạc (5 dock)', PK: 'Bãi đỗ', PK2: 'Bãi đỗ',
 };
+// where the zone names are drawn (free floor between racks / lines), metres
+const LABEL_AT = { A: [20.2, 42.75], B: [64.5, 47.5], C: [62.0, 22.5], D: [20.2, 18.75], CHG: [69.5, 36.6] };
 const TASK_VI = { KIT_DELIVERY: 'Linh kiện', BOX_TRANSFER: 'Thùng SP', FG_DELIVERY: 'Thành phẩm', MANUAL: 'Thủ công' };
 const TASK_STATUS_VI = {
   QUEUED: 'Chờ robot', NEXT: 'Đã xếp (task kế)', ASSIGNED: 'Đã giao', TO_PICKUP: 'Đi lấy',
@@ -404,15 +406,22 @@ function drawStatic() {
       }
     }
   }
-  // zone labels on top
-  g.font = `600 ${Math.max(11, 1.5 * s)}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  // zone labels on top: two lines, placed in free floor space, with a surface halo
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
   for (const z of layout.zones || []) {
     if (z.id === 'PK' || z.id === 'PK2') continue;
     const [a, b, c, d] = z.rect;
-    // labels sit in the upper-left corner of each zone, the charging label under its docks
-    const [px, py] = z.id === 'CHG' ? P((a + c) / 2, b - 0.9) : P(a + 1.2, d - 1.6);
-    g.textAlign = z.id === 'CHG' ? 'center' : 'left';
-    g.fillStyle = css('--ink-2'); g.fillText(ZONE_VI[z.id] || z.name, px, py);
+    const at = LABEL_AT[z.id] || [(a + c) / 2, (b + d) / 2];
+    const [px, py] = P(at[0], at[1]);
+    const [l1, l2] = (ZONE_VI[z.id] || z.name).split(' · ');
+    const lines = l2 ? [[l1, 1.5, 600], [l2, 1.15, 500]] : [[l1, 1.3, 600]];
+    let y = py - (lines.length - 1) * 0.75 * s;
+    for (const [txt, size, weight] of lines) {
+      g.font = `${weight} ${Math.max(10, size * s)}px system-ui`;
+      g.lineWidth = 4 * dpr; g.strokeStyle = css('--floor'); g.strokeText(txt, px, y);
+      g.fillStyle = css('--ink-2'); g.fillText(txt, px, y);
+      y += 1.5 * s;
+    }
   }
 }
 
@@ -529,6 +538,10 @@ canvas.addEventListener('click', (evt) => { const { r } = robotAt(evt); selected
 $('#btnPause').addEventListener('click', () => post('api/pause', { paused: !(state && state.paused) }));
 $('#evFilter').addEventListener('change', renderEvents);
 $('#optRoutes').addEventListener('change', () => {});
+$('#btnDemo').addEventListener('click', async () => {
+  const res = await post('api/demo', {});
+  $('#demoMsg').textContent = res.ok ? `Demo với ${res.message.replace(/amr_/g, 'AMR-')}: xem bản đồ và nhật ký "Né đường"` : `Không chạy được: ${res.message}`;
+});
 $('#taskForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const res = await post('api/task', { pickup: $('#fPickup').value, dropoff: $('#fDropoff').value, priority: parseInt($('#fPrio').value, 10) });

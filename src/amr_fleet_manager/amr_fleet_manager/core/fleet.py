@@ -44,6 +44,7 @@ TO_CHARGER = 'TO_CHARGER'
 CHARGING = 'CHARGING'
 WAIT_CHARGER = 'WAIT_CHARGER'
 YIELDING = 'YIELDING'
+DEMO = 'DEMO'
 
 TASK_STATES = (TO_PICKUP, LOADING, TO_DROPOFF, UNLOADING)
 WORK_STATES = (LOADING, UNLOADING, CHARGING)
@@ -61,6 +62,7 @@ STATE_TEXT = {
     CHARGING: 'Đang sạc pin',
     WAIT_CHARGER: 'Chờ dock sạc trống',
     YIELDING: 'Nhường đường',
+    DEMO: 'Kịch bản demo đối đầu',
 }
 
 INFO, WARN, ERROR = 0, 1, 2
@@ -94,6 +96,7 @@ class FleetParams:
     w_aging: float = 4.0
     aging_cap: float = 160.0
     lookahead: float = 4.5
+    production: bool = True            # False: no MES tasks, only manual tasks / demos
 
 
 @dataclass
@@ -220,6 +223,7 @@ class FleetCore:
         self.reroutes = 0
         self.physical_conflicts = 0
         self._agents: Dict[str, TrafficAgent] = {}
+        self.demo: Optional[dict] = None
 
     # ================================================================ API
     @property
@@ -302,7 +306,7 @@ class FleetCore:
                 self.event(ERROR, 'SYSTEM', r.id, f'{r.id} mất kết nối')
             if r.online and r.needs_init:
                 self._init_robot(r)
-        if not self.paused:
+        if not self.paused and self.p.production:
             supply = {s: len(b) for s, b in self.station_bookings.items()}
             for t in self.tasks.active():
                 if t.status == QUEUED:
@@ -320,6 +324,7 @@ class FleetCore:
             self._update_work(r)
             self._battery_watch(r)
         self._serve_charge_queue()
+        self._run_demo()
         if now - self._last_assign >= self.p.assign_period and not self.paused:
             self._last_assign = now
             self._assign()
@@ -444,7 +449,7 @@ class FleetCore:
             self.event(INFO, 'CHARGE', r.id, f'{r.id} vào dock {r.dock}, bắt đầu sạc ({r.battery:.0f}%)')
         elif st == TO_PARK:
             r.state = PARKED
-        elif st == WAIT_CHARGER:
+        elif st in (WAIT_CHARGER, DEMO):
             pass
         else:
             r.state = IDLE
@@ -725,6 +730,72 @@ class FleetCore:
         t.next_for = None
         r.next_task = None
 
+    # ============================================================== demo
+    def start_demo_head_on(self, lane: str = 'north') -> Tuple[bool, str]:
+        """Send two idle robots to both ends of a two-way lane, then let them
+        drive towards each other at the same time: the lower priority robot
+        must give way in a yield bay and rejoin its route afterwards."""
+        if self.demo is not None:
+            return False, 'Kịch bản demo đang chạy'
+        bays = sorted((i for i in self.g.yield_bays if self.g.nodes[i].id.startswith(f'Y.{lane}.')),
+                      key=lambda i: (self.g.nodes[i].x, self.g.nodes[i].y))
+        if len(bays) < 3:
+            return False, f'Làn {lane} không có đủ yield bay'
+        ends = [bays[0], bays[-1]]
+        free = [r for r in self.robots.values() if self._available(r) and r.state != CHARGING]
+        if len(free) < 2:
+            return False, 'Cần ít nhất 2 robot rảnh (đang đỗ) để chạy demo'
+        picked = []
+        for end in ends:
+            r = min((x for x in free if x not in picked),
+                    key=lambda x: self.g.travel_time(self._anchor(x), end))
+            picked.append(r)
+        for r, end in zip(picked, ends):
+            self.yield_booking[end] = r.id
+            self._navigate(r, end, DEMO, final_yaw=self.g.nodes[end].heading)
+        self.demo = {'robots': [r.id for r in picked], 'ends': ends, 'phase': 'staging',
+                     'since': self.now}
+        self.event(WARN, 'YIELD', '', f'Demo đối đầu: {picked[0].id} và {picked[1].id} ra hai đầu '
+                                      f'làn 2 chiều "{lane}" rồi chạy ngược chiều nhau')
+        return True, f'{picked[0].id}, {picked[1].id}'
+
+    def _run_demo(self) -> None:
+        d = self.demo
+        if d is None:
+            return
+        robots = [self.robots[i] for i in d['robots']]
+        if any(r.state not in (DEMO, YIELDING) or not r.online for r in robots) \
+                or self.now - d['since'] > 900:
+            self._end_demo('kịch bản bị gián đoạn')
+            return
+        idle = all(not r.route and r.state == DEMO for r in robots)
+        if d['phase'] == 'staging' and idle:
+            d['phase'] = 'swap'
+            for r, goal in zip(robots, reversed(d['ends'])):
+                self.yield_booking[goal] = r.id
+                path = self.g.plan(r.current_node, goal)
+                if path is not None:
+                    self._set_route(r, path, 1, DEMO, self.g.nodes[goal].heading or float('nan'))
+            hi, lo = sorted(robots, key=lambda x: -x.priority_static)
+            self.event(WARN, 'YIELD', '', f'Demo: {hi.id} (P{hi.rank}) và {lo.id} (P{lo.rank}) chạy '
+                                          f'ngược chiều trên cùng một làn → {lo.id} phải nhường')
+        elif d['phase'] == 'swap' and idle:
+            self._end_demo('hoàn tất')
+
+    def _end_demo(self, why: str) -> None:
+        d = self.demo
+        self.demo = None
+        if d is None:
+            return
+        for end in d['ends']:
+            self.yield_booking.pop(end, None)
+        for rid in d['robots']:
+            r = self.robots[rid]
+            if r.state == DEMO and not r.route:
+                r.state = IDLE
+                self._go_idle(r)
+        self.event(INFO, 'YIELD', '', f'Demo đối đầu {why}')
+
     # =========================================================== priority
     def _priorities(self) -> None:
         p = self.p
@@ -746,7 +817,10 @@ class FleetCore:
             if p.priority_mode != 'static' and r.stall_since is not None:
                 aging = min((self.now - r.stall_since) * p.w_aging, p.aging_cap)
             r.priority = r.priority_static + aging
-        for i, r in enumerate(sorted(self.robots.values(), key=lambda x: (-x.priority, x.base_rank))):
+        # the displayed rank is the one used to decide who gives way; the waiting
+        # time bonus only re-orders grants at intersections (anti-starvation)
+        for i, r in enumerate(sorted(self.robots.values(),
+                                     key=lambda x: (-x.priority_static, x.base_rank))):
             r.rank = i + 1
 
     # ============================================================ traffic

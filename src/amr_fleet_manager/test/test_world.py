@@ -28,3 +28,29 @@ def test_world_leaves_every_lane_open(layout, graph):
                     blocked.append((a.id, b.id))
                     break
     assert not blocked, f'edges blocked by world objects: {blocked[:10]}'
+
+
+def test_worker_routes_keep_clear_of_machines(layout, graph):
+    """Workers walk on free floor: 0.5 m from every rack, machine and conveyor
+    footprint (they have no physics), and cross AMR lanes only on zebra crossings
+    painted by the world generator."""
+    from amr_fleet_manager.core.layout import all_objects, people_routes, people_segments
+    from amr_fleet_manager.tools.generate_world import walkway_crossings
+    routes = people_routes(layout)
+    assert len(routes) >= 6
+    rects = [o['rect'] for o in all_objects(layout, graph)]
+    close = []
+    crossings = 0
+    for r in routes:
+        for a, b in people_segments(r):
+            n = max(2, int(np.hypot(b[0] - a[0], b[1] - a[1]) / 0.1))
+            for t in np.linspace(0.0, 1.0, n + 1):
+                x, y = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
+                for x0, y0, x1, y1 in rects:
+                    dx = max(x0 - x, 0.0, x - x1)
+                    dy = max(y0 - y, 0.0, y - y1)
+                    if np.hypot(dx, dy) < 0.5:
+                        close.append((r['name'], round(x, 1), round(y, 1)))
+            crossings += len(walkway_crossings(graph, a, b))
+    assert not close, f'worker routes too close to objects: {close[:5]}'
+    assert crossings >= 2      # the main aisle and the link lane are crossed

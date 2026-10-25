@@ -22,7 +22,10 @@ find_package(sdformat REQUIRED)
 add_library(amr_line_animator SHARED src/LineAnimator.cc)
 target_link_libraries(amr_line_animator
   gz-sim::gz-sim gz-plugin::register gz-transport::core gz-msgs::core sdformat::sdformat)
-install(TARGETS amr_line_animator LIBRARY DESTINATION lib/${PROJECT_NAME})
+add_library(amr_pedestrians SHARED src/Pedestrians.cc)
+target_link_libraries(amr_pedestrians
+  gz-sim::gz-sim gz-plugin::register gz-transport::core gz-msgs::core sdformat::sdformat)
+install(TARGETS amr_line_animator amr_pedestrians LIBRARY DESTINATION lib/${PROJECT_NAME})
 
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/${PROJECT_NAME}.dsv.in")
 install(DIRECTORY launch worlds models maps DESTINATION share/${PROJECT_NAME})

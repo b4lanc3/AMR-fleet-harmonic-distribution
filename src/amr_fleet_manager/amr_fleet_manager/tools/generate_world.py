@@ -34,7 +34,8 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-from ..core.layout import build_graph, line_objects, load_layout, station_objects
+from ..core.layout import (build_graph, line_objects, load_layout, people_routes,
+                           people_segments, station_objects)
 
 LIDAR_Z = (0.16, 0.24)      # z band of the 2D lidar plane (mounted at 0.20 m)
 
@@ -854,6 +855,90 @@ def build_charging_area(layout, graph, slices, out: List[str]) -> None:
     out.append(m.sdf())
 
 
+def _seg_intersection(a, b, c, d) -> Optional[float]:
+    """Parameter t on a->b where it crosses c->d (None if they do not cross)."""
+    r = (b[0] - a[0], b[1] - a[1])
+    q = (d[0] - c[0], d[1] - c[1])
+    den = r[0] * q[1] - r[1] * q[0]
+    if abs(den) < 1e-9:
+        return None
+    t = ((c[0] - a[0]) * q[1] - (c[1] - a[1]) * q[0]) / den
+    u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den
+    return t if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0 else None
+
+
+def walkway_crossings(graph, a, b, half: float = 1.3) -> List[Tuple[float, float]]:
+    """Spans (metres along a->b) where a walkway crosses AMR lanes, merged."""
+    L = math.dist(a, b)
+    hits = []
+    for es in graph.out_edges:
+        for e in es:
+            t = _seg_intersection(a, b, (graph.nodes[e.u].x, graph.nodes[e.u].y),
+                                  (graph.nodes[e.v].x, graph.nodes[e.v].y))
+            if t is not None:
+                hits.append(t * L)
+    spans: List[Tuple[float, float]] = []
+    for h in sorted(hits):
+        lo, hi = max(0.0, h - half), min(L, h + half)
+        if spans and lo <= spans[-1][1] + 0.3:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], hi))
+        else:
+            spans.append((lo, hi))
+    return spans
+
+
+def build_people(layout, graph, out: List[str]) -> str:
+    """Painted walkways / zebra crossings along the workers' routes and the
+    Pedestrians system block (returned) that animates the workers."""
+    routes = people_routes(layout)
+    if not routes:
+        return ''
+    m = Model('walkways')
+    for route in routes:
+        for a, b in people_segments(route):
+            L = math.dist(a, b)
+            if L < 0.2:
+                continue
+            ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+            yaw = math.atan2(uy, ux)
+            spans = walkway_crossings(graph, a, b)
+            # zebra crossings over the lanes: white bars across the walking direction
+            for lo, hi in spans:
+                k = lo + 0.2
+                while k < hi - 0.15:
+                    m.box(a[0] + ux * k, a[1] + uy * k, 0.007, 0.3, 1.4, 0.002, 'white', yaw,
+                          in_map=False)
+                    k += 0.6
+            # green border lines on both sides elsewhere
+            free, last = [], 0.0
+            for lo, hi in spans:
+                if lo - last > 0.3:
+                    free.append((last, lo))
+                last = hi
+            if L - last > 0.3:
+                free.append((last, L))
+            for lo, hi in free:
+                cx, cy = a[0] + ux * (lo + hi) / 2, a[1] + uy * (lo + hi) / 2
+                for side in (-0.7, 0.7):
+                    m.box(cx - uy * side, cy + ux * side, 0.006, hi - lo, 0.08, 0.002,
+                          'walkway', yaw, in_map=False)
+    out.append(m.sdf())
+    cfg = layout.get('people') or {}
+    persons = []
+    for r in routes:
+        wps = ''.join(f'<waypoint dwell="{d:g}">{x:.2f} {y:.2f}</waypoint>'
+                      for (x, y), d in zip(r['waypoints'], r['dwell']))
+        vest = ' '.join(f'{c:g}' for c in r['vest'])
+        helmet = ' '.join(f'{c:g}' for c in r['helmet'])
+        persons.append(f'<person name="{escape(r["name"])}" speed="{r["speed"]:g}" '
+                       f'loop="{str(r["loop"]).lower()}" vest="{vest}" helmet="{helmet}">'
+                       f'{wps}</person>')
+    return (f'  <plugin filename="amr_pedestrians" name="amr_gazebo::Pedestrians">'
+            f'<topic>/factory/people</topic><robot_prefix>amr_</robot_prefix>'
+            f'<stop_distance>{float(cfg.get("stop_distance", 2.0)):g}</stop_distance>'
+            f'{"".join(persons)}</plugin>\n')
+
+
 def build_office(layout, out: List[str]) -> None:
     cfg = (layout.get('decor', {}) or {}).get('office')
     if not cfg:
@@ -960,7 +1045,8 @@ def write_map(base: str, img, origin, resolution) -> Tuple[str, str]:
 
 # ===================================================================== world
 def world_sdf(layout: dict, step: float = 0.004, rtf: float = 1.0, animate: bool = True,
-              line_topic: str = '/factory/line_state', mesh: Optional[Tuple[str, str]] = None):
+              line_topic: str = '/factory/line_state', mesh: Optional[Tuple[str, str]] = None,
+              people: bool = True):
     """Return (sdf_text, map_slices).
 
     mesh=(obj_file, uri): bake the opaque static geometry into obj_file (written
@@ -968,12 +1054,12 @@ def world_sdf(layout: dict, step: float = 0.004, rtf: float = 1.0, animate: bool
     global _BAKER
     _BAKER = MeshBaker() if mesh else None
     try:
-        return _world_sdf(layout, step, rtf, animate, line_topic, mesh)
+        return _world_sdf(layout, step, rtf, animate, line_topic, mesh, people)
     finally:
         _BAKER = None
 
 
-def _world_sdf(layout, step, rtf, animate, line_topic, mesh):
+def _world_sdf(layout, step, rtf, animate, line_topic, mesh, people):
     graph = build_graph(layout)
     W, H = layout.get('factory', {}).get('size', [100.0, 60.0])
     slices = MapSlices()
@@ -995,6 +1081,7 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh):
     build_wall_items(layout, slices, body)
     build_office(layout, body)
     build_trucks(layout, body)
+    workers = build_people(layout, graph, body) if people else ''
 
     if mesh and _BAKER is not None and _BAKER.count:
         obj_file, uri = mesh
@@ -1028,7 +1115,7 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh):
   <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
     <render_engine>ogre2</render_engine>
   </plugin>
-{anim}  <gravity>0 0 -9.81</gravity>
+{anim}{workers}  <gravity>0 0 -9.81</gravity>
   <scene>
     <ambient>0.62 0.62 0.62 1</ambient>
     <background>0.62 0.72 0.82 1</background>
@@ -1053,11 +1140,13 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh):
 
 
 def write_world_and_map(layout: dict, world_file: str, map_base: str = '',
-                        step: float = 0.004, rtf: float = 1.0, animate: bool = True) -> Optional[str]:
+                        step: float = 0.004, rtf: float = 1.0, animate: bool = True,
+                        people: bool = True) -> Optional[str]:
     """Write the world SDF and (optionally) the matching map; return the map yaml."""
     import os
     obj = os.path.join(os.path.dirname(os.path.abspath(world_file)), 'factory_static.obj')
-    sdf, slices = world_sdf(layout, step, rtf, animate=animate, mesh=(obj, 'file://' + obj))
+    sdf, slices = world_sdf(layout, step, rtf, animate=animate, mesh=(obj, 'file://' + obj),
+                            people=people)
     with open(world_file, 'w', encoding='utf-8') as f:
         f.write(sdf)
     if not map_base:
@@ -1081,6 +1170,7 @@ def main(argv: Sequence[str] = None) -> None:
     ap.add_argument('--step', type=float, default=0.004, help='physics max step size [s]')
     ap.add_argument('--rtf', type=float, default=1.0, help='target real time factor')
     ap.add_argument('--no-animation', action='store_true')
+    ap.add_argument('--no-people', action='store_true', help='no walking workers')
     ap.add_argument('--mesh', default='',
                     help='bake static geometry into this OBJ file (default: next to --out)')
     ap.add_argument('--mesh-uri', default='', help='URI of the OBJ in the world '
@@ -1096,7 +1186,7 @@ def main(argv: Sequence[str] = None) -> None:
         os.makedirs(os.path.dirname(obj), exist_ok=True)
         mesh = (obj, args.mesh_uri or 'file://' + obj)
     sdf, slices = world_sdf(layout, args.step, args.rtf, animate=not args.no_animation,
-                            mesh=mesh)
+                            mesh=mesh, people=not args.no_people)
     with open(args.out, 'w', encoding='utf-8') as f:
         f.write(sdf)
     print(f'wrote {args.out} ({len(sdf) / 1024:.0f} kB)')

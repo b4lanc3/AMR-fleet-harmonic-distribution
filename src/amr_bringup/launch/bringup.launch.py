@@ -66,6 +66,7 @@ def launch_setup(context, *args, **kwargs):
                 'num_robots': str(n), 'layout_file': layout, 'gui': lc('gui'),
                 'camera': lc('camera'), 'bridge_cameras': lc('bridge_cameras'),
                 'bridge_points': 'all' if nav2 else 'images',
+                'people': lc('people'),
                 'odom': 'wheel' if nav2 else 'ground_truth',
                 'world': lc('world')}.items()))
         if nav2:
@@ -125,6 +126,8 @@ def generate_launch_description():
         DeclareLaunchArgument('gui', default_value='true', description='Gazebo GUI'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('camera', default_value='true', description='RGB-D camera sensors'),
+        DeclareLaunchArgument('people', default_value='true',
+                              description='workers walking in the factory (Gazebo)'),
         DeclareLaunchArgument('bridge_cameras', default_value='first',
                               description='none | first | all  (camera topics bridged to ROS)'),
         DeclareLaunchArgument('priority_mode', default_value='task', description='task | dynamic | static'),

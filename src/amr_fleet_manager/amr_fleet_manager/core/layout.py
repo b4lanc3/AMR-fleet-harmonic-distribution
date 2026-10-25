@@ -57,6 +57,40 @@ def line_objects(layout: dict) -> List[dict]:
     return out
 
 
+PERSON_COLORS = {
+    'orange': (1.0, 0.45, 0.0, 1.0), 'yellow': (0.98, 0.85, 0.05, 1.0),
+    'lime': (0.55, 0.90, 0.10, 1.0), 'white': (0.95, 0.95, 0.95, 1.0),
+    'blue': (0.15, 0.35, 0.85, 1.0), 'red': (0.85, 0.12, 0.10, 1.0),
+}
+
+
+def people_routes(layout: dict) -> List[dict]:
+    """Workers of the `people:` section with defaults filled in (colours as RGBA)."""
+    cfg = layout.get('people') or {}
+    out = []
+    for i, w in enumerate(cfg.get('workers', []) or []):
+        wps = [(float(x), float(y)) for x, y in w['waypoints']]
+        dwell = [float(d) for d in (w.get('dwell') or [])] + [0.0] * len(wps)
+        out.append({
+            'name': w.get('name', f'worker_{i + 1}'),
+            'speed': float(w.get('speed', 1.0)),
+            'loop': bool(w.get('loop', False)),
+            'waypoints': wps,
+            'dwell': dwell[:len(wps)],
+            'vest': PERSON_COLORS.get(w.get('vest', 'orange'), PERSON_COLORS['orange']),
+            'helmet': PERSON_COLORS.get(w.get('helmet', 'white'), PERSON_COLORS['white']),
+        })
+    return out
+
+
+def people_segments(route: dict) -> List[Tuple[Vec, Vec]]:
+    wps = route['waypoints']
+    segs = list(zip(wps, wps[1:]))
+    if route['loop'] and len(wps) > 2:
+        segs.append((wps[-1], wps[0]))
+    return segs
+
+
 def static_objects(layout: dict) -> List[dict]:
     """Layout objects + line footprints (everything but station side objects)."""
     return list(layout.get('objects', []) or []) + line_objects(layout)

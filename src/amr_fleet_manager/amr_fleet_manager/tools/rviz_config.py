@@ -71,6 +71,11 @@ def make_rviz_config(ids: List[str], camera_robot: str = '', center=(60.0, 36.0)
         {'Class': 'rviz_common/Group', 'Name': 'Robots', 'Enabled': True, 'Displays': robots},
         {'Class': 'rviz_common/Group', 'Name': 'Lidar 2D', 'Enabled': True, 'Displays': scans},
     ]
+    displays.append({
+        'Class': 'rviz_default_plugins/PoseArray', 'Name': 'Workers (Gazebo)', 'Enabled': True,
+        'Topic': _topic('/factory/people'), 'Shape': 'Arrow (3D)', 'Color': '255; 120; 0',
+        'Alpha': 1, 'Arrow Length': 0.6, 'Head Length': 0.15, 'Head Radius': 0.12,
+        'Shaft Length': 0.45, 'Shaft Radius': 0.06})
     if nav2:
         first = ids[0]
         displays += [

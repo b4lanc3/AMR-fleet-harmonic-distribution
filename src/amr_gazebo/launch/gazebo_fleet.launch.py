@@ -41,7 +41,10 @@ def _bridge_config(ids, cameras, points, ground_truth):
     cfg = [entry('/clock', '/clock', 'rosgraph_msgs/msg/Clock', 'gz.msgs.Clock', 'GZ_TO_ROS'),
            # MES line state -> conveyors of the LineAnimator system
            entry('/factory/line_state', '/factory/line_state', 'std_msgs/msg/String',
-                 'gz.msgs.StringMsg', 'ROS_TO_GZ')]
+                 'gz.msgs.StringMsg', 'ROS_TO_GZ'),
+           # walking workers (Pedestrians system) -> dashboard / RViz
+           entry('/factory/people', '/factory/people', 'geometry_msgs/msg/PoseArray',
+                 'gz.msgs.Pose_V', 'GZ_TO_ROS')]
     for i, rid in enumerate(ids):
         cfg += [
             entry(f'/{rid}/cmd_vel', f'/{rid}/cmd_vel', 'geometry_msgs/msg/Twist', 'gz.msgs.Twist', 'ROS_TO_GZ'),
@@ -104,7 +107,8 @@ def launch_setup(context, *args, **kwargs):
     if not world:
         world = os.path.join(tmp, 'factory.sdf')
         write_world_and_map(layout, world, os.path.join(tmp, 'factory_map'),
-                            step=float(lc('physics_step')))
+                            step=float(lc('physics_step')),
+                            people=lc('people').lower() == 'true')
     wheel_odom = lc('odom') == 'wheel'
 
     gz_args = f'-r -v {lc("gz_verbosity")} {world}'
@@ -163,6 +167,8 @@ def generate_launch_description():
         DeclareLaunchArgument('bridge_points', default_value='all',
                               description='bridge the RGB-D point clouds: all | images '
                                           '(only robots whose images are bridged)'),
+        DeclareLaunchArgument('people', default_value='true',
+                              description='workers walking in the factory'),
         DeclareLaunchArgument('odom', default_value='wheel',
                               description='wheel (AMCL / Nav2) | ground_truth'),
         DeclareLaunchArgument('physics_step', default_value='0.004'),

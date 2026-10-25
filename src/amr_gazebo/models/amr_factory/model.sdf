@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="amr_factory">
+    <static>true</static>
+    <link name="link">
+      <visual name="baked">
+        <geometry><mesh><uri>model://amr_factory/meshes/factory_static.obj</uri></mesh></geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

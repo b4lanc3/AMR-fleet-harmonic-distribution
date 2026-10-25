@@ -7,7 +7,9 @@ Topics (global):
   /fleet/snapshot_json  std_msgs/String                 everything as JSON (dashboard)
   /fleet/markers        visualization_msgs/MarkerArray  dynamic RViz markers
   /fleet/static_markers visualization_msgs/MarkerArray  layout (latched)
-  /map                  nav_msgs/OccupancyGrid          factory map (latched)
+  /factory/line_state   std_msgs/String                 "B1=1;B2=0;..." conveyors in Gazebo
+  /map                  nav_msgs/OccupancyGrid          factory map (latched, publish_map:=true;
+                                                        with Nav2 the map_server serves /map)
 Per robot (<id> = amr_01 ...):
   /<id>/fleet/status    amr_fleet_msgs/RobotStatus      (subscribed)
   /<id>/fleet/route     amr_fleet_msgs/RouteCommand     (published)
@@ -66,6 +68,9 @@ class FleetManagerNode(Node):
         self.declare_parameter('station_capacity', 2)
         self.declare_parameter('start_paused', False)
         self.declare_parameter('production', True)
+        # Nav2 mode: map_server publishes the AMCL map and AMCL publishes map -> odom
+        self.declare_parameter('publish_map', True)
+        self.declare_parameter('publish_odom_tf', True)
 
         gp = self.get_parameter
         layout_file = gp('layout_file').value
@@ -109,8 +114,13 @@ class FleetManagerNode(Node):
         self.json_pub = self.create_publisher(String, '/fleet/snapshot_json', qos)
         self.marker_pub = self.create_publisher(MarkerArray, '/fleet/markers', qos)
         self.static_pub = self.create_publisher(MarkerArray, '/fleet/static_markers', latched)
-        self.map_pub = self.create_publisher(OccupancyGrid, '/map', latched)
+        self.publish_map = gp('publish_map').value
+        self.publish_odom_tf = gp('publish_odom_tf').value
+        if self.publish_map:
+            self.map_pub = self.create_publisher(OccupancyGrid, '/map', latched)
         self.layout_pub = self.create_publisher(String, '/fleet/layout_json', latched)
+        # conveyors in Gazebo run only while the MES line is RUNNING
+        self.line_pub = self.create_publisher(String, '/factory/line_state', qos)
 
         self.create_service(SubmitTask, '/fleet/submit_task', self._srv_submit)
         self.create_service(SetRobotPriority, '/fleet/set_robot_priority', self._srv_priority)
@@ -161,6 +171,7 @@ class FleetManagerNode(Node):
         msg.granted_index = int(c.granted_index)
         msg.final_yaw = float(c.final_yaw)
         msg.charge = bool(c.charge)
+        msg.carrying = bool(c.carrying)
         self.route_pubs[c.robot_id].publish(msg)
 
     def _tick(self) -> None:
@@ -262,6 +273,9 @@ class FleetManagerNode(Node):
             setattr(msg, k, int(p[k]))
         msg.throughput_per_hour = float(p['throughput_per_hour'])
         self.prod_pub.publish(msg)
+        state = ';'.join(f"{ln['line_id']}={1.0 if ln['status'] == 'RUNNING' else 0.0:.1f}"
+                         for ln in p['lines'] if ln['line_type'] in ('production', 'packaging'))
+        self.line_pub.publish(String(data=state))
 
     def _publish_markers(self) -> None:
         if self._snapshot is None:
@@ -274,13 +288,16 @@ class FleetManagerNode(Node):
         stamp = self.get_clock().now().to_msg()
         self.static_pub.publish(static_markers(self.layout, self.graph, self.frame, stamp))
         objects = all_objects(self.layout, self.graph)
-        self.map_pub.publish(occupancy_grid(self.layout, self.frame, stamp, objects=objects))
+        if self.publish_map:
+            self.map_pub.publish(occupancy_grid(self.layout, self.frame, stamp, objects=objects))
         layout = dict(self.layout)
         layout['objects'] = objects
         self.layout_pub.publish(String(data=json.dumps(clean_json(
             {'layout': layout, 'graph': graph_to_dict(self.graph),
              'robots': self.robot_ids}), default=_json_default)))
-        # map -> <robot>/odom (odometry is map aligned in both simulators)
+        if not self.publish_odom_tf:
+            return
+        # map -> <robot>/odom (ground-truth odometry is map aligned)
         tfs = []
         for rid in self.robot_ids:
             t = TransformStamped()

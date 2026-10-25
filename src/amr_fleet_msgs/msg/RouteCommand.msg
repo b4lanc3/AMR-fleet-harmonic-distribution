@@ -14,3 +14,4 @@ float32[] speed_limits  # max speed [m/s] for the segment that ends at waypoint 
 int32 granted_index     # robot may drive up to (and stop at) waypoints[granted_index]
 float64 final_yaw       # yaw to align to at the last waypoint (NaN = don't care)
 bool charge             # robot is docked on a charger -> enable charging
+bool carrying           # goods on board -> raise the cargo (visual load in Gazebo)

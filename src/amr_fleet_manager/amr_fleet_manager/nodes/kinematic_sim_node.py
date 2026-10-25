@@ -5,7 +5,8 @@ For each robot it provides exactly the interfaces the Gazebo bridge provides:
   pub /<id>/odom               nav_msgs/Odometry   (map-aligned, like the gz OdometryPublisher)
   pub /<id>/scan               sensor_msgs/LaserScan (180 deg front lidar, sees walls,
                                                       objects and other robots)
-  pub /<id>/joint_states       sensor_msgs/JointState (wheel angles for robot_state_publisher)
+  sub /<id>/cargo_lift         std_msgs/Float64 (load on the deck, shown by robot_state_publisher)
+  pub /<id>/joint_states       sensor_msgs/JointState (wheels + cargo lift)
   pub /tf                      <id>/odom -> <id>/base_footprint
   pub /tf_static               map -> <id>/odom (identity)
 """
@@ -20,6 +21,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, LaserScan
+from std_msgs.msg import Float64
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from ..core.layout import all_objects, build_graph, load_layout
@@ -54,9 +56,12 @@ class KinematicSimNode(Node):
         qos = QoSProfile(depth=10)
         sensor_qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.odom_pubs, self.scan_pubs, self.js_pubs = {}, {}, {}
+        self.cargo = {rid: 0.0 for rid in self.ids}
         for rid in self.ids:
             self.create_subscription(Twist, f'/{rid}/cmd_vel',
                                      lambda m, r=rid: self._on_cmd(r, m), qos)
+            self.create_subscription(Float64, f'/{rid}/cargo_lift',
+                                     lambda m, r=rid: self.cargo.__setitem__(r, m.data), qos)
             self.odom_pubs[rid] = self.create_publisher(Odometry, f'/{rid}/odom', qos)
             self.scan_pubs[rid] = self.create_publisher(LaserScan, f'/{rid}/scan', sensor_qos)
             self.js_pubs[rid] = self.create_publisher(JointState, f'/{rid}/joint_states', qos)
@@ -113,8 +118,8 @@ class KinematicSimNode(Node):
             tfs.append(t)
             js = JointState()
             js.header.stamp = stamp
-            js.name = ['left_wheel_joint', 'right_wheel_joint']
-            js.position = [r.wheel_left, r.wheel_right]
+            js.name = ['left_wheel_joint', 'right_wheel_joint', 'cargo_joint']
+            js.position = [r.wheel_left, r.wheel_right, float(self.cargo.get(rid, 0.0))]
             self.js_pubs[rid].publish(js)
         self.tf.sendTransform(tfs)
 

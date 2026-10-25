@@ -3,7 +3,8 @@
      All topics are absolute and namespaced (/amr_01/...) so one ros_gz_bridge
      can serve the whole fleet. -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="amr_gazebo" params="ns wheel_sep wheel_r camera camera_rate lidar_rate">
+  <xacro:macro name="amr_gazebo" params="ns wheel_sep wheel_r camera camera_rate lidar_rate odom:=ground_truth">
+    <xacro:property name="wheel_odom" value="${odom == 'wheel'}"/>
 
     <gazebo>
       <!-- 2 driven wheels -->
@@ -21,25 +22,53 @@
         <max_angular_acceleration>3.5</max_angular_acceleration>
         <min_angular_acceleration>-3.5</min_angular_acceleration>
         <topic>/${ns}/cmd_vel</topic>
-        <odom_topic>/${ns}/wheel_odom</odom_topic>
-        <tf_topic>/${ns}/wheel_tf</tf_topic>
+        <xacro:if value="${wheel_odom}">
+          <!-- wheel odometry: drifts like on a real AMR, AMCL publishes map->odom -->
+          <odom_topic>/${ns}/odom</odom_topic>
+          <tf_topic>/${ns}/tf</tf_topic>
+        </xacro:if>
+        <xacro:unless value="${wheel_odom}">
+          <odom_topic>/${ns}/wheel_odom</odom_topic>
+          <tf_topic>/${ns}/wheel_tf</tf_topic>
+        </xacro:unless>
         <frame_id>${ns}/odom</frame_id>
         <child_frame_id>${ns}/base_footprint</child_frame_id>
-        <odom_publish_frequency>20</odom_publish_frequency>
+        <odom_publish_frequency>30</odom_publish_frequency>
       </plugin>
-      <!-- map-aligned odometry + TF (stands in for an on-board localisation) -->
+      <!-- exact pose: odometry in ground-truth mode, /<ns>/ground_truth otherwise -->
       <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
         <odom_frame>${ns}/odom</odom_frame>
         <robot_base_frame>${ns}/base_footprint</robot_base_frame>
         <odom_publish_frequency>30</odom_publish_frequency>
-        <odom_topic>/${ns}/odom</odom_topic>
-        <tf_topic>/${ns}/tf</tf_topic>
+        <xacro:if value="${wheel_odom}">
+          <odom_topic>/${ns}/ground_truth</odom_topic>
+          <tf_topic>/${ns}/ground_truth_tf</tf_topic>
+        </xacro:if>
+        <xacro:unless value="${wheel_odom}">
+          <odom_topic>/${ns}/odom</odom_topic>
+          <tf_topic>/${ns}/tf</tf_topic>
+        </xacro:unless>
         <dimensions>2</dimensions>
       </plugin>
       <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
         <topic>/${ns}/joint_states</topic>
         <joint_name>left_wheel_joint</joint_name>
         <joint_name>right_wheel_joint</joint_name>
+        <joint_name>cargo_joint</joint_name>
+      </plugin>
+      <!-- cargo lift: 0 = hidden in the chassis, 0.235 = load on the deck.
+           Force PID (velocity commands do not move a prismatic joint in gz-sim 8). -->
+      <plugin filename="gz-sim-joint-position-controller-system"
+              name="gz::sim::systems::JointPositionController">
+        <joint_name>cargo_joint</joint_name>
+        <topic>/${ns}/cargo_lift</topic>
+        <p_gain>400</p_gain>
+        <i_gain>40</i_gain>
+        <d_gain>40</d_gain>
+        <i_max>50</i_max>
+        <i_min>-50</i_min>
+        <cmd_max>150</cmd_max>
+        <cmd_min>-150</cmd_min>
       </plugin>
     </gazebo>
 

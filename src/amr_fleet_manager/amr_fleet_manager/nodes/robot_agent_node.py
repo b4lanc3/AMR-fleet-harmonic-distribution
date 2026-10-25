@@ -1,14 +1,22 @@
 """On-board software of one AMR (runs once per robot, in its namespace).
 
-* subscribes  odom (nav_msgs/Odometry, map frame), scan (sensor_msgs/LaserScan),
+* subscribes  odom (nav_msgs/Odometry), scan (sensor_msgs/LaserScan),
               camera/points (sensor_msgs/PointCloud2, RGB-D camera, optional),
               fleet/route (amr_fleet_msgs/RouteCommand)
-* publishes   cmd_vel (geometry_msgs/Twist), fleet/status (amr_fleet_msgs/RobotStatus),
-              battery (sensor_msgs/BatteryState)
+* publishes   fleet/status (amr_fleet_msgs/RobotStatus), battery (sensor_msgs/BatteryState),
+              cargo_lift (std_msgs/Float64)
 
-The path follower drives along the waypoints granted by the fleet manager and
-applies a safety field fused from the 2D lidar and the 3D camera.  The battery is simulated here (drain while
-driving, charge while docked and the fleet manager enables charging).
+Two drivers move the robot along the waypoints granted by the fleet manager:
+
+* driver:=nav2    the granted route goes to the robot's Nav2 controller_server
+                  (FollowPath, Regulated Pure Pursuit + local costmap), the pose
+                  is the AMCL estimate and Nav2's collision_monitor (lidar + 3D
+                  camera) publishes cmd_vel.  See nav2_driver.py.
+* driver:=simple  built-in pure pursuit on map-aligned odometry with a safety
+                  field fused from the 2D lidar and the 3D camera -> cmd_vel.
+
+The battery is simulated here (drain while driving, charge while docked and
+the fleet manager enables charging).
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ import math
 import rclpy
 from amr_fleet_msgs.msg import RobotStatus, RouteCommand
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Float64
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -26,6 +35,10 @@ from sensor_msgs.msg import BatteryState, LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 
 from ..core.controller import MODE_HOLD, MODE_IDLE, FollowerParams, PathFollower
+from .nav2_driver import Nav2Driver
+
+
+CARGO_UP = 0.235   # cargo_joint position with the load on the deck
 
 
 def yaw_from_quat(q) -> float:
@@ -42,6 +55,7 @@ class RobotAgent(Node):
             kw['parameter_overrides'] = [Parameter(k, value=v) for k, v in overrides.items()]
         super().__init__('robot_agent', **kw)
         self.declare_parameter('robot_id', self.get_namespace().strip('/') or 'amr_01')
+        self.declare_parameter('driver', 'simple')       # simple | nav2
         self.declare_parameter('control_rate', 20.0)
         self.declare_parameter('status_rate', 10.0)
         self.declare_parameter('initial_battery', 90.0)
@@ -67,6 +81,10 @@ class RobotAgent(Node):
                             safety_stop=gp('safety_stop_distance').value,
                             safety_slow=gp('safety_slow_distance').value)
         self.follower = PathFollower(fp)
+        driver = gp('driver').value
+        if driver not in ('simple', 'nav2'):
+            raise ValueError(f'unknown driver "{driver}" (simple | nav2)')
+        self.nav2 = Nav2Driver(self, self.robot_id, self.follower) if driver == 'nav2' else None
         self.half_angle = math.radians(gp('safety_half_angle_deg').value)
         self.battery = float(gp('initial_battery').value)
         self.idle_drain = gp('battery_idle_drain').value
@@ -92,36 +110,39 @@ class RobotAgent(Node):
         self.create_subscription(Odometry, 'odom', self._on_odom, qos)
         self.create_subscription(LaserScan, 'scan', self._on_scan, sensor_qos)
         self.create_subscription(RouteCommand, 'fleet/route', self._on_route, qos)
-        if gp('use_camera_safety').value:
+        # with Nav2 the collision_monitor and the local costmap use the point cloud
+        if gp('use_camera_safety').value and self.nav2 is None:
             self.cam_x, self.cam_z = gp('camera_x').value, gp('camera_z').value
             self.cam_pitch = gp('camera_pitch').value
             self.cam_timeout = gp('camera_timeout').value
             self.create_subscription(PointCloud2, 'camera/points', self._on_points, sensor_qos)
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', qos)
+        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', qos) if self.nav2 is None else None
+        self.cargo_pub = self.create_publisher(Float64, 'cargo_lift', qos)
+        self.carrying = False
         self.status_pub = self.create_publisher(RobotStatus, 'fleet/status', qos)
         self.batt_pub = self.create_publisher(BatteryState, 'battery', qos)
         self.create_timer(1.0 / gp('control_rate').value, self._control)
         self.create_timer(1.0 / gp('status_rate').value, self._publish_status)
-        self.get_logger().info(f'{self.robot_id}: agent ready (battery {self.battery:.0f}%)')
+        self.get_logger().info(f'{self.robot_id}: agent ready, driver {driver} '
+                               f'(battery {self.battery:.0f}%)')
 
     # ---------------------------------------------------------- callbacks
     def _on_odom(self, msg: Odometry) -> None:
-        p = msg.pose.pose
-        self.pose = (p.position.x, p.position.y, yaw_from_quat(p.orientation))
+        if self.nav2 is not None:
+            self.nav2.on_odom(msg)      # wheel odometry, the pose comes from AMCL
+        else:
+            p = msg.pose.pose
+            self.pose = (p.position.x, p.position.y, yaw_from_quat(p.orientation))
         self.v_meas = msg.twist.twist.linear.x
         self.w_meas = msg.twist.twist.angular.z
 
     def _on_scan(self, msg: LaserScan) -> None:
-        best = math.inf
-        a = msg.angle_min
-        reverse = self.follower.s.v < -0.01
-        for r in msg.ranges:
-            ang = a if not reverse else a + math.pi
-            ang = (ang + math.pi) % (2 * math.pi) - math.pi
-            if abs(ang) <= self.half_angle and msg.range_min < r < msg.range_max:
-                best = min(best, r)
-            a += msg.angle_increment
-        self.lidar_clearance = best - 0.0
+        r = np.asarray(msg.ranges, dtype=np.float32)
+        ang = msg.angle_min + np.arange(r.size, dtype=np.float32) * msg.angle_increment
+        if self.follower.s.v < -0.01:          # reversing: look backwards
+            ang = (ang + 2.0 * math.pi) % (2.0 * math.pi) - math.pi
+        ok = (np.abs(ang) <= self.half_angle) & (r > msg.range_min) & (r < msg.range_max)
+        self.lidar_clearance = float(r[ok].min()) if ok.any() else math.inf
         self._fuse()
 
     def _on_points(self, msg: PointCloud2) -> None:
@@ -161,6 +182,9 @@ class RobotAgent(Node):
         self.follower.set_command(msg.command_id, msg.mode, wps, list(msg.speed_limits),
                                   msg.granted_index, msg.final_yaw)
         self.charge_enable = bool(msg.charge)
+        if bool(msg.carrying) != self.carrying:
+            self.carrying = bool(msg.carrying)
+            self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else 0.0))
 
     # ------------------------------------------------------------ control
     def _control(self) -> None:
@@ -169,17 +193,25 @@ class RobotAgent(Node):
         self.last_step = now
         if dt <= 0.0 or dt > 1.0:
             dt = 0.05
-        twist = Twist()
-        if self.pose is not None:
-            stale = (self.last_cmd_time is None
-                     or (now - self.last_cmd_time).nanoseconds * 1e-9 > self.cmd_timeout)
-            if stale:
-                self.follower.s.mode = MODE_HOLD if self.follower.s.waypoints else MODE_IDLE
-            v, w = self.follower.step(self.pose[0], self.pose[1], self.pose[2], dt,
-                                      self.front_clearance)
-            twist.linear.x = v
-            twist.angular.z = w
-        self.cmd_pub.publish(twist)
+        if self.nav2 is not None:
+            self.pose = self.nav2.pose() or self.pose
+        stale = (self.last_cmd_time is None
+                 or (now - self.last_cmd_time).nanoseconds * 1e-9 > self.cmd_timeout)
+        if self.pose is not None and stale:
+            self.follower.s.mode = MODE_HOLD if self.follower.s.waypoints else MODE_IDLE
+        if self.nav2 is not None:
+            if self.pose is not None:
+                self.nav2.step(self.pose, self.v_meas, now.nanoseconds * 1e-9)
+                # the collision monitor only reports while Nav2 is driving
+                self.follower.s.obstacle_stop = self.nav2.obstacle_stop and not self.nav2.goal_done
+        else:
+            twist = Twist()
+            if self.pose is not None:
+                v, w = self.follower.step(self.pose[0], self.pose[1], self.pose[2], dt,
+                                          self.front_clearance)
+                twist.linear.x = v
+                twist.angular.z = w
+            self.cmd_pub.publish(twist)
         if self.sim_battery:
             self.charging = self.charge_enable and abs(self.v_meas) < 0.03
             if self.charging:
@@ -215,6 +247,7 @@ class RobotAgent(Node):
         b.power_supply_status = (BatteryState.POWER_SUPPLY_STATUS_CHARGING if self.charging
                                  else BatteryState.POWER_SUPPLY_STATUS_DISCHARGING)
         self.batt_pub.publish(b)
+        self.cargo_pub.publish(Float64(data=CARGO_UP if self.carrying else 0.0))
 
 
 def main_fleet(args=None) -> None:
@@ -227,14 +260,16 @@ def main_fleet(args=None) -> None:
     cfg.declare_parameter('num_robots', 12)
     cfg.declare_parameter('robot_prefix', 'amr_')
     cfg.declare_parameter('initial_batteries', [0.0])
+    cfg.declare_parameter('driver', 'simple')
     n = cfg.get_parameter('num_robots').value
     prefix = cfg.get_parameter('robot_prefix').value
     batt = [b for b in cfg.get_parameter('initial_batteries').value]
     use_sim_time = cfg.get_parameter('use_sim_time').value
+    driver = cfg.get_parameter('driver').value
     nodes = []
     for i in range(n):
         rid = f'{prefix}{i + 1:02d}'
-        ov = {'robot_id': rid, 'use_sim_time': use_sim_time}
+        ov = {'robot_id': rid, 'use_sim_time': use_sim_time, 'driver': driver}
         if i < len(batt) and batt[i] > 0:
             ov['initial_battery'] = float(batt[i])
         nodes.append(RobotAgent(namespace=rid, overrides=ov))

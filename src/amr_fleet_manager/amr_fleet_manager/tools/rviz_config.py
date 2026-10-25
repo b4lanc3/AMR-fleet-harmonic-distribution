@@ -18,12 +18,32 @@ def _topic(name: str, durability: str = 'Volatile', reliability: str = 'Reliable
             'Reliability Policy': reliability, 'Value': name}
 
 
-def make_rviz_config(ids: List[str], camera_robot: str = '', center=(50.0, 30.0)) -> str:
+def make_rviz_config(ids: List[str], camera_robot: str = '', center=(60.0, 36.0),
+                     nav2: bool = False) -> str:
     robots = []
     scans = []
+    particles = []
+    safety = []
+    plans = []
     for i, rid in enumerate(ids):
         r, g, b = robot_rgb(i)
         rgb = f'{int(r * 255)}; {int(g * 255)}; {int(b * 255)}'
+        if nav2:
+            particles.append({
+                'Class': 'nav2_rviz_plugins/ParticleCloud', 'Name': f'{rid} AMCL', 'Enabled': True,
+                'Topic': _topic(f'/{rid}/particle_cloud', reliability='Best Effort'),
+                'Color': rgb, 'Alpha': 1, 'Shape': 'Arrow (Flat)', 'Arrow Length': 0.18,
+                'Min Arrow Length': 0.1, 'Max Arrow Length': 0.3})
+            for poly, col in (('polygon_stop', '239; 41; 41'), ('polygon_slowdown', '252; 175; 62')):
+                safety.append({
+                    'Class': 'rviz_default_plugins/Polygon', 'Name': f'{rid} {poly}',
+                    'Enabled': True, 'Color': col, 'Alpha': 1,
+                    'Topic': _topic(f'/{rid}/{poly}')})
+            plans.append({
+                'Class': 'rviz_default_plugins/Path', 'Name': f'{rid} FollowPath', 'Enabled': True,
+                'Topic': _topic(f'/{rid}/received_global_plan'), 'Color': rgb, 'Alpha': 1,
+                'Line Style': 'Lines', 'Line Width': 0.03, 'Buffer Length': 1,
+                'Offset': {'X': 0, 'Y': 0, 'Z': 0.05}, 'Pose Style': 'None'})
         robots.append({
             'Class': 'rviz_default_plugins/RobotModel', 'Name': rid, 'Enabled': True, 'Alpha': 1,
             'Description Source': 'Topic',
@@ -51,6 +71,20 @@ def make_rviz_config(ids: List[str], camera_robot: str = '', center=(50.0, 30.0)
         {'Class': 'rviz_common/Group', 'Name': 'Robots', 'Enabled': True, 'Displays': robots},
         {'Class': 'rviz_common/Group', 'Name': 'Lidar 2D', 'Enabled': True, 'Displays': scans},
     ]
+    if nav2:
+        first = ids[0]
+        displays += [
+            {'Class': 'rviz_common/Group', 'Name': 'Nav2: AMCL particles', 'Enabled': True,
+             'Displays': particles},
+            {'Class': 'rviz_common/Group', 'Name': 'Nav2: paths sent to FollowPath',
+             'Enabled': False, 'Displays': plans},
+            {'Class': 'rviz_common/Group', 'Name': 'Nav2: collision monitor zones',
+             'Enabled': True, 'Displays': safety},
+            {'Class': 'rviz_default_plugins/Map', 'Name': f'Nav2: local costmap ({first})',
+             'Enabled': True, 'Alpha': 0.6, 'Color Scheme': 'costmap', 'Draw Behind': False,
+             'Topic': _topic(f'/{first}/local_costmap/costmap'),
+             'Update Topic': _topic(f'/{first}/local_costmap/costmap_updates')},
+        ]
     if camera_robot:
         displays.append({'Class': 'rviz_common/Group', 'Name': f'3D camera ({camera_robot})',
                          'Enabled': True, 'Displays': [
@@ -78,13 +112,13 @@ def make_rviz_config(ids: List[str], camera_robot: str = '', center=(50.0, 30.0)
                       {'Class': 'rviz_default_plugins/Measure'}],
             'Views': {
                 'Current': {'Class': 'rviz_default_plugins/Orbit', 'Name': 'Factory',
-                            'Distance': 78.0, 'Pitch': 1.05, 'Yaw': 4.71,
+                            'Distance': 96.0, 'Pitch': 1.05, 'Yaw': 4.71,
                             'Focal Point': {'X': center[0], 'Y': center[1] - 4.0, 'Z': 0.0},
                             'Field of View': 0.785, 'Near Clip Distance': 0.5,
                             'Target Frame': '<Fixed Frame>', 'Value': 'Orbit (rviz)'},
                 'Saved': [
                     {'Class': 'rviz_default_plugins/TopDownOrtho', 'Name': 'Top down',
-                     'Scale': 14.0, 'X': center[0], 'Y': center[1], 'Angle': 0,
+                     'Scale': 11.0, 'X': center[0], 'Y': center[1], 'Angle': 0,
                      'Target Frame': '<Fixed Frame>', 'Value': 'TopDownOrtho (rviz_default_plugins)'},
                 ]},
         },
@@ -98,11 +132,12 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--robots', type=int, default=12)
     ap.add_argument('--camera-robot', default='amr_01')
+    ap.add_argument('--nav2', action='store_true', help='AMCL particles, safety zones, costmap')
     ap.add_argument('--out', required=True)
     a = ap.parse_args(argv)
     ids = [f'amr_{i + 1:02d}' for i in range(a.robots)]
     with open(a.out, 'w') as f:
-        f.write(make_rviz_config(ids, a.camera_robot))
+        f.write(make_rviz_config(ids, a.camera_robot, nav2=a.nav2))
     print(f'wrote {a.out}')
 
 

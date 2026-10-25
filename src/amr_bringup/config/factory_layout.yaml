@@ -198,9 +198,9 @@ decor:
     - {wall: north, at: 20.0, width: 5.0}
     - {wall: north, at: 95.0, width: 5.0}
   trucks:                     # trucks at the loading docks outside the hall
-    - {x: 20.0, y: -8.5, yaw: 1.5708}
-    - {x: 60.0, y: -8.5, yaw: 1.5708}
-    - {x: 20.0, y: 80.5, yaw: -1.5708}
+    - {x: 20.0, y: -8.5, yaw: -1.5708}
+    - {x: 60.0, y: -8.5, yaw: -1.5708}
+    - {x: 20.0, y: 80.5, yaw: 1.5708}
   office: {rect: [120.4, 20.0, 134.0, 52.0], floors: 2}   # office / control room annex
   columns: {spacing_x: 12.0, spacing_y: 12.0}             # placed only where they keep clear of traffic
   lights: {spacing_x: 12.0, spacing_y: 12.0, height: 9.2}

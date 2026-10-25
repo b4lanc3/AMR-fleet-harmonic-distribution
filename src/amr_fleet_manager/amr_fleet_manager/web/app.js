@@ -23,7 +23,7 @@ const ZONE_VI = {
   D: 'Khu D · Kho thành phẩm', CHG: 'Trạm sạc (5 dock)', PK: 'Bãi đỗ', PK2: 'Bãi đỗ',
 };
 // where the zone names are drawn (free floor between racks / lines), metres
-const LABEL_AT = { A: [20.2, 42.75], B: [64.5, 47.5], C: [62.0, 22.5], D: [20.2, 18.75], CHG: [69.5, 36.6] };
+const LABEL_AT = { A: [20.8, 53.25], B: [74.5, 49.0], C: [74.5, 20.5], D: [20.8, 22.75], CHG: [72.0, 37.6] };
 const TASK_VI = { KIT_DELIVERY: 'Linh kiện', BOX_TRANSFER: 'Thùng SP', FG_DELIVERY: 'Thành phẩm', MANUAL: 'Thủ công' };
 const TASK_STATUS_VI = {
   QUEUED: 'Chờ robot', NEXT: 'Đã xếp (task kế)', ASSIGNED: 'Đã giao', TO_PICKUP: 'Đi lấy',
@@ -212,7 +212,7 @@ function renderDetail() {
       <dt>ETA đích</dt><dd>${fmtS(r.eta_goal_s)}</dd>
       <dt>ETA xong task</dt><dd>${r.task_id ? fmtS(r.eta_task_s) : '—'}</dd>
       <dt>Task tiếp theo</dt><dd>${esc(r.next_task_description)}</dd>
-      <dt>Hàng ưu tiên</dt><dd><b>P${r.priority_rank}</b> · điểm ${Math.round(r.priority_score)} · hạng cơ bản ${r.base_rank}</dd>
+      <dt>Hàng ưu tiên</dt><dd><b>P${r.priority_rank}</b> · điểm ${Math.round(r.priority_score)}<br><span class="small">${esc(prioWhy(r))}</span></dd>
       <dt>Chờ / nhường</dt><dd>${waitHtml(r)}</dd>
       <dt>Pin</dt><dd>${battHtml(r.battery_percent, r.charging)}</dd>
       <dt>Vị trí</dt><dd>x ${r.pose.x.toFixed(1)}, y ${r.pose.y.toFixed(1)} · ${(r.speed).toFixed(2)} m/s</dd>
@@ -423,6 +423,22 @@ function drawStatic() {
       y += 1.5 * s;
     }
   }
+}
+
+const PRIO_VI = ['thấp', 'bình thường', 'cao (dây chuyền sắp dừng)', 'khẩn'];
+// why a robot has its rank: the priority follows its task (priority_mode: task)
+function prioWhy(r) {
+  const t = (state.tasks || []).find((x) => x.task_id === r.task_id);
+  if (!t) {
+    if (r.state === 'TO_CHARGER' || r.state === 'WAIT_CHARGER') {
+      return r.battery_percent < 15 ? 'đi sạc, pin rất thấp: ưu tiên cao nhất' : 'đi sạc';
+    }
+    return `không có task · hạng cơ bản ${r.base_rank} (chỉ để phân xử khi hoà)`;
+  }
+  const parts = [`task ${t.task_id} mức ${PRIO_VI[t.priority] || t.priority}`];
+  parts.push(r.cargo ? 'đang chở hàng (+400)' : 'chưa lấy hàng');
+  parts.push(`task chờ ${fmtS(t.age_s)}`);
+  return parts.join(' · ');
 }
 
 function curPose(id, now) {

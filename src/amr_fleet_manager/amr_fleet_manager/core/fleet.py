@@ -128,9 +128,10 @@ class Command:
     granted_index: int
     final_yaw: float
     charge: bool
+    carrying: bool = False
 
     def key(self) -> tuple:
-        return (self.command_id, self.mode, self.granted_index, self.charge)
+        return (self.command_id, self.mode, self.granted_index, self.charge, self.carrying)
 
 
 @dataclass
@@ -1248,7 +1249,7 @@ class FleetCore:
         for r in self.robots.values():
             if not r.route:
                 cmds[r.id] = Command(r.id, r.command_id, 0, [], [], [], -1, float('nan'),
-                                     r.state == CHARGING)
+                                     r.state == CHARGING, bool(r.cargo))
                 continue
             mode = 2 if (self.paused or r.paused) else 1
             cmds[r.id] = Command(
@@ -1256,7 +1257,7 @@ class FleetCore:
                 [self.g.nodes[n].id for n in r.route],
                 [self.g.nodes[n].xy for n in r.route],
                 self._speed_limits(r.route),
-                r.granted, r.final_yaw, False)
+                r.granted, r.final_yaw, False, bool(r.cargo))
         return cmds
 
     # ================================================================ ETA

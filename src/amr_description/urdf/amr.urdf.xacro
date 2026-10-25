@@ -19,6 +19,7 @@
   <xacro:arg name="camera" default="true"/>
   <xacro:arg name="camera_rate" default="5"/>
   <xacro:arg name="lidar_rate" default="10"/>
+  <xacro:arg name="odom" default="ground_truth"/>   <!-- ground_truth | wheel (for AMCL / Nav2) -->
 
   <xacro:property name="ns" value="$(arg robot_name)"/>
   <xacro:property name="pfx" value=""/>  <!-- frames are prefixed by robot_state_publisher (frame_prefix) -->
@@ -219,10 +220,37 @@
     <origin rpy="${-PI/2} 0 ${-PI/2}"/>
   </joint>
 
+  <!-- ============================================== cargo (visual load) -->
+  <!-- Lifted onto the deck while the AMR carries goods, hidden inside the
+       chassis otherwise (prismatic joint driven by a position controller). -->
+  <material name="cargo"><color rgba="0.74 0.56 0.34 1"/></material>
+  <link name="${pfx}cargo_link">
+    <visual>
+      <geometry><box size="0.56 0.40 0.22"/></geometry>
+      <material name="cargo"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.111"/>
+      <geometry><box size="0.57 0.06 0.004"/></geometry>
+      <material name="deck"/>
+    </visual>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.03" iyz="0" izz="0.04"/>
+    </inertial>
+  </link>
+  <joint name="cargo_joint" type="prismatic">
+    <parent link="${pfx}base_link"/>
+    <child link="${pfx}cargo_link"/>
+    <origin xyz="0 0 ${0.17 - wheel_r}"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="0.24" effort="300" velocity="0.5"/>
+  </joint>
+
   <xacro:if value="$(arg gazebo)">
     <xacro:include filename="$(find amr_description)/urdf/amr.gazebo.xacro"/>
     <xacro:amr_gazebo ns="${ns}" wheel_sep="${wheel_sep}" wheel_r="${wheel_r}"
                       camera="$(arg camera)" camera_rate="$(arg camera_rate)"
-                      lidar_rate="$(arg lidar_rate)"/>
+                      lidar_rate="$(arg lidar_rate)" odom="$(arg odom)"/>
   </xacro:if>
 </robot>

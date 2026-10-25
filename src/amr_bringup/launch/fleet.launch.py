@@ -1,7 +1,10 @@
 """Fleet software only: fleet manager, one agent per robot, web dashboard.
 
-Use it on top of any simulator (Gazebo or the kinematic one) or real robots
-that provide /<id>/odom, /<id>/scan and accept /<id>/cmd_vel.
+Use it on top of any simulator (Gazebo or the kinematic one) or real robots.
+driver:=simple  robots provide map-aligned /<id>/odom, /<id>/scan and accept
+                /<id>/cmd_vel; the fleet manager serves /map and map -> odom.
+driver:=nav2    every robot runs AMCL + Nav2 (navigation.launch.py); the agents
+                send the granted lane route to FollowPath.
 """
 
 import os
@@ -19,6 +22,8 @@ def launch_setup(context, *args, **kwargs):
     lc = lambda name: LaunchConfiguration(name).perform(context)  # noqa: E731
     n = int(lc('num_robots'))
     sim_time = lc('use_sim_time').lower() == 'true'
+    driver = lc('driver')
+    nav2 = driver == 'nav2'
     share = get_package_share_directory('amr_bringup')
     params = os.path.join(share, 'config', 'fleet_params.yaml')
     layout = lc('layout_file') or os.path.join(share, 'config', 'factory_layout.yaml')
@@ -28,6 +33,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[params, {'layout_file': layout, 'num_robots': n,
                              'priority_mode': lc('priority_mode'),
                              'production': lc('production').lower() == 'true',
+                             'publish_map': not nav2, 'publish_odom_tf': not nav2,
                              'use_sim_time': sim_time}])]
     if lc('agents') == 'per_robot':
         # one process per robot, like on real AMRs
@@ -37,15 +43,17 @@ def launch_setup(context, *args, **kwargs):
                 package='amr_fleet_manager', executable='robot_agent', name='robot_agent',
                 namespace=rid, output='log',
                 parameters=[params, {'robot_id': rid, 'initial_battery': initial_battery(i),
-                                     'use_sim_time': sim_time}]))
+                                     'driver': driver, 'use_sim_time': sim_time}]))
     else:
-        # all agents in one process: one DDS participant, much less CPU in simulation
+        # all agents in one process: one DDS participant, much less CPU in simulation.
+        # No name= here: a node-name remap would rename every agent of the process and
+        # the /**/robot_agent section of fleet_params.yaml would no longer apply.
         actions.append(Node(
-            package='amr_fleet_manager', executable='fleet_agents', name='fleet_agents',
+            package='amr_fleet_manager', executable='fleet_agents',
             output='screen',
             parameters=[params, {'num_robots': n,
                                  'initial_batteries': [initial_battery(i) for i in range(n)],
-                                 'use_sim_time': sim_time}]))
+                                 'driver': driver, 'use_sim_time': sim_time}]))
     if lc('dashboard').lower() == 'true':
         actions.append(Node(
             package='amr_fleet_manager', executable='dashboard', name='fleet_dashboard',
@@ -65,6 +73,7 @@ def generate_launch_description():
                               description='false: no MES tasks (manual tasks / demo only)'),
         DeclareLaunchArgument('agents', default_value='single_process',
                               description='single_process | per_robot'),
+        DeclareLaunchArgument('driver', default_value='simple', description='simple | nav2'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         OpaqueFunction(function=launch_setup),

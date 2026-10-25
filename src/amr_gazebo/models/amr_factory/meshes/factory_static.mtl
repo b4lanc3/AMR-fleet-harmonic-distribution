@@ -1,0 +1,480 @@
+newmtl grass
+Ka 0.300 0.500 0.250
+Kd 0.300 0.500 0.250
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl asphalt
+Ka 0.220 0.220 0.230
+Kd 0.220 0.220 0.230
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl white
+Ka 0.950 0.950 0.950
+Kd 0.950 0.950 0.950
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl floor
+Ka 0.700 0.710 0.700
+Kd 0.700 0.710 0.700
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl floor_joint
+Ka 0.550 0.550 0.540
+Kd 0.550 0.550 0.540
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl wall_base
+Ka 0.580 0.580 0.560
+Kd 0.580 0.580 0.560
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl wall_panel
+Ka 0.840 0.860 0.880
+Kd 0.840 0.860 0.880
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl wall_top
+Ka 0.300 0.420 0.580
+Kd 0.300 0.420 0.580
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl steel_light
+Ka 0.620 0.640 0.660
+Kd 0.620 0.640 0.660
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl door
+Ka 0.780 0.800 0.820
+Kd 0.780 0.800 0.820
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl door_frame
+Ka 0.950 0.750 0.050
+Kd 0.950 0.750 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl black
+Ka 0.060 0.060 0.060
+Kd 0.060 0.060 0.060
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl steel
+Ka 0.380 0.400 0.430
+Kd 0.380 0.400 0.430
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl yellow
+Ka 0.980 0.780 0.050
+Kd 0.980 0.780 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_a2b8cc
+Ka 0.634 0.721 0.799
+Kd 0.634 0.721 0.799
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_338cf2
+Ka 0.200 0.550 0.950
+Kd 0.200 0.550 0.950
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_ccbb9f
+Ka 0.799 0.732 0.623
+Kd 0.799 0.732 0.623
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_f29926
+Ka 0.950 0.600 0.150
+Kd 0.950 0.600 0.150
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_b8adc9
+Ka 0.722 0.677 0.788
+Kd 0.722 0.677 0.788
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_9959e6
+Ka 0.600 0.350 0.900
+Kd 0.600 0.350 0.900
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_a2c3ad
+Ka 0.634 0.765 0.678
+Kd 0.634 0.765 0.678
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_33bf66
+Ka 0.200 0.750 0.400
+Kd 0.200 0.750 0.400
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_ccc99c
+Ka 0.799 0.787 0.612
+Kd 0.799 0.787 0.612
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_f2d91a
+Ka 0.950 0.850 0.100
+Kd 0.950 0.850 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_b5b8b5
+Ka 0.711 0.721 0.711
+Kd 0.711 0.721 0.711
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl c_8c8c8c
+Ka 0.550 0.550 0.550
+Kd 0.550 0.550 0.550
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl lane
+Ka 0.980 0.850 0.100
+Kd 0.980 0.850 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl lane_two
+Ka 0.980 0.500 0.050
+Kd 0.980 0.500 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl pad_station
+Ka 0.100 0.700 0.300
+Kd 0.100 0.700 0.300
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl pad_dock
+Ka 0.980 0.850 0.100
+Kd 0.980 0.850 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl pad_park
+Ka 0.950 0.950 0.950
+Kd 0.950 0.950 0.950
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl pad_yield
+Ka 1.000 0.550 0.000
+Kd 1.000 0.550 0.000
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl rack_up
+Ka 0.100 0.300 0.650
+Kd 0.100 0.300 0.650
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl shelf
+Ka 0.720 0.720 0.700
+Kd 0.720 0.720 0.700
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl rack_beam
+Ka 0.950 0.450 0.050
+Kd 0.950 0.450 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl bin_blue
+Ka 0.150 0.400 0.800
+Kd 0.150 0.400 0.800
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl carton_dark
+Ka 0.620 0.450 0.260
+Kd 0.620 0.450 0.260
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl bin_red
+Ka 0.800 0.200 0.150
+Kd 0.800 0.200 0.150
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl bin_green
+Ka 0.150 0.600 0.300
+Kd 0.150 0.600 0.300
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl carton
+Ka 0.740 0.560 0.340
+Kd 0.740 0.560 0.340
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl pallet
+Ka 0.620 0.450 0.250
+Kd 0.620 0.450 0.250
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl cabinet
+Ka 0.620 0.640 0.680
+Kd 0.620 0.640 0.680
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl charger
+Ka 0.950 0.800 0.100
+Kd 0.950 0.800 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl belt
+Ka 0.090 0.090 0.100
+Kd 0.090 0.090 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl galv
+Ka 0.720 0.740 0.760
+Kd 0.720 0.740 0.760
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl roller
+Ka 0.550 0.570 0.600
+Kd 0.550 0.570 0.600
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl machine
+Ka 0.900 0.910 0.920
+Kd 0.900 0.910 0.920
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl machine_blue
+Ka 0.150 0.380 0.700
+Kd 0.150 0.380 0.700
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl machine_dark
+Ka 0.300 0.320 0.350
+Kd 0.300 0.320 0.350
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl amber
+Ka 1.000 0.700 0.000
+Kd 1.000 0.700 0.000
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl red
+Ka 0.880 0.120 0.100
+Kd 0.880 0.120 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl robot_orange
+Ka 0.980 0.450 0.050
+Kd 0.980 0.450 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl wood
+Ka 0.700 0.520 0.320
+Kd 0.700 0.520 0.320
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl bin_yellow
+Ka 0.950 0.750 0.100
+Kd 0.950 0.750 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl machine_orange
+Ka 0.950 0.520 0.100
+Kd 0.950 0.520 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl packer
+Ka 0.550 0.400 0.800
+Kd 0.550 0.400 0.800
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl concrete
+Ka 0.660 0.660 0.640
+Kd 0.660 0.660 0.640
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl truck_box
+Ka 0.920 0.920 0.920
+Kd 0.920 0.920 0.920
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl truck_cab
+Ka 0.800 0.100 0.100
+Kd 0.800 0.100 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl tyre
+Ka 0.050 0.050 0.050
+Kd 0.050 0.050 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+

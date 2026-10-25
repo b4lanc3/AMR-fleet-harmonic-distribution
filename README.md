@@ -360,7 +360,10 @@ trong 550 s mô phỏng). Sản phẩm chạy trên băng tải của cả 8 dâ
   `num_robots`, `camera:=false` (costmap/collision monitor chỉ dùng lidar), `navigation:=simple`, hoặc
   `sim:=kinematic`.
 * Không có GPU, camera RGB-D render chậm hơn lidar nhiều; nguồn point cloud của collision monitor vì vậy có
-  `source_timeout` 6 s (lidar 2 s) để robot không bị dừng vì dữ liệu camera đến trễ.
+  `source_timeout` 6 s (lidar 2 s). Nếu camera vẫn trễ hơn thế, collision monitor dừng robot cho tới khi có dữ liệu
+  mới (fail-safe, đúng như trên robot thật); trên máy không GPU nên chạy `camera:=false`.
+* `nav2_full_stack:=true` đã thử với NavigateToPose thủ công (planner NavFn + BT mặc định của Nav2). Khi fleet manager
+  đang điều khiển robot thì không nên gửi NavigateToPose cho robot đó: hai bên sẽ tranh nhau `controller_server`.
 * Để nhẹ CPU, mặc định tất cả `robot_agent` chạy trong 1 process (`fleet_agents`), mọi `robot_state_publisher` trong 1
   component container, Nav2 mỗi robot trong 1 `component_container_isolated`. Agent lấy pose từ `amcl_pose` ghép với
   odometry (đúng như TF) thay vì nghe toàn bộ `/tf` của cả đội trong Python.

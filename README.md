@@ -15,13 +15,13 @@ Mô phỏng **đội 10–15 AMR (tối đa 30)** vận chuyển nội bộ tron
 * **Dashboard web** (http://localhost:8080): robot số mấy đang làm gì, đi route nào, ETA, task tiếp theo, hàng ưu
   tiên, pin, đang chờ hoặc nhường ai; bản đồ trực tiếp, 8 dây chuyền, trạm sạc, hàng đợi task, nhật ký điều phối.
 
-![Dashboard](docs/dashboard.png)
+![Dashboard: bản đồ trực tiếp, chi tiết AMR-02 (task, lộ trình, ETA, task tiếp theo, lý do hàng ưu tiên)](docs/dashboard.png)
 
 | Gazebo Harmonic: toàn cảnh nhà máy | Gazebo: dây chuyền sản xuất / đóng gói, sản phẩm chạy trên băng tải |
 |---|---|
 | ![gazebo](docs/gazebo_overview.png) | ![lines](docs/gazebo_lines.png) |
 
-| Gazebo: AMR chở hàng (khay nâng) ở kho linh kiện | RViz2: Nav2 (hạt AMCL, vùng an toàn collision monitor, costmap), lộ trình, nhãn robot |
+| Gazebo + Nav2: AMR chở thùng SP (khay nâng) rời B3_OUT sang dây chuyền đóng gói | RViz2: layout, đồ thị giao thông, robot, lidar, nhóm hiển thị Nav2, ảnh camera 3D |
 |---|---|
 | ![closeup](docs/gazebo_closeup.png) | ![rviz](docs/rviz_overview.png) |
 

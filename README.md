@@ -254,8 +254,21 @@ yield bay, chờ robot kia đi qua rồi **bám lại route cũ**. Mọi bước
 | `production` | `true` | `false`: tắt MES mô phỏng, robot chỉ chạy task thủ công / demo |
 | `agents` | `single_process` | `single_process`: mọi agent trong 1 process (nhẹ CPU) · `per_robot`: mỗi robot 1 process như AMR thật |
 | `dashboard_port` | `8080` | Cổng web |
+| `dashboard_host` | `0.0.0.0` | `127.0.0.1`: chỉ máy này mở được dashboard (dashboard tạo được task, dừng cả đội) |
 
-Chỉ chạy Nav2 cho đội robot (khi Gazebo đã chạy riêng): `ros2 launch amr_bringup navigation.launch.py num_robots:=12`.
+Chạy từng phần riêng (đúng những gì `bringup.launch.py` làm; các tham số đi theo cặp, trộn sai thì khung toạ độ
+không khớp):
+
+```bash
+# Nav2: odometry bánh xe + AMCL, fleet manager không phát /map và map -> odom
+ros2 launch amr_gazebo gazebo_fleet.launch.py num_robots:=12 odom:=wheel bridge_points:=all
+ros2 launch amr_bringup navigation.launch.py num_robots:=12
+ros2 launch amr_bringup fleet.launch.py num_robots:=12 driver:=nav2 use_sim_time:=true
+
+# bộ bám đường có sẵn: odometry ground truth, fleet manager phát /map và map -> odom
+ros2 launch amr_gazebo gazebo_fleet.launch.py num_robots:=12 odom:=ground_truth bridge_points:=images
+ros2 launch amr_bringup fleet.launch.py num_robots:=12 driver:=simple use_sim_time:=true
+```
 
 ### Công cụ dòng lệnh
 

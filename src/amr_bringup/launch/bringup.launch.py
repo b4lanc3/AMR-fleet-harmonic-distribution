@@ -94,6 +94,7 @@ def launch_setup(context, *args, **kwargs):
                           'priority_mode': lc('priority_mode'), 'dashboard': lc('dashboard'),
                           'production': lc('production'), 'agents': lc('agents'),
                           'dashboard_port': lc('dashboard_port'),
+                          'dashboard_host': lc('dashboard_host'),
                           'driver': 'nav2' if nav2 else 'simple'}.items()))
 
     if lc('rviz').lower() == 'true':
@@ -133,5 +134,7 @@ def generate_launch_description():
                               description='single_process (simulation) | per_robot (like real AMRs)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
+        DeclareLaunchArgument('dashboard_host', default_value='0.0.0.0',
+                              description='127.0.0.1 = only this machine can open the dashboard'),
         OpaqueFunction(function=launch_setup),
     ])

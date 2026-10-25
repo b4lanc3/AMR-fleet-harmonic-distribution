@@ -157,7 +157,13 @@ def _make_handler(node: DashboardNode):
                 body = json.loads(self.rfile.read(length) or b'{}')
             except json.JSONDecodeError:
                 return self._json({'ok': False, 'message': 'bad json'}, 400)
-            path = self.path.split('?')[0]
+            try:
+                return self._post(self.path.split('?')[0], body)
+            except (AttributeError, TypeError, ValueError, AssertionError) as exc:
+                # wrong field types / values out of range for the ROS message
+                return self._json({'ok': False, 'message': f'bad request: {exc}'}, 400)
+
+        def _post(self, path, body):
             if path == '/api/task':
                 req = SubmitTask.Request()
                 req.pickup = str(body.get('pickup', ''))

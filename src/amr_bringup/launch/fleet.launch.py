@@ -58,6 +58,7 @@ def launch_setup(context, *args, **kwargs):
         actions.append(Node(
             package='amr_fleet_manager', executable='dashboard', name='fleet_dashboard',
             output='screen', parameters=[{'port': int(lc('dashboard_port')),
+                                          'host': lc('dashboard_host'),
                                           'use_sim_time': sim_time}]))
     return actions
 
@@ -76,5 +77,8 @@ def generate_launch_description():
         DeclareLaunchArgument('driver', default_value='simple', description='simple | nav2'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
+        DeclareLaunchArgument('dashboard_host', default_value='0.0.0.0',
+                              description='127.0.0.1: dashboard (which can create tasks and '
+                                          'pause the fleet) only reachable from this machine'),
         OpaqueFunction(function=launch_setup),
     ])

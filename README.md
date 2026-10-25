@@ -21,13 +21,15 @@ Mô phỏng **đội 10–15 AMR (tối đa 30)** vận chuyển nội bộ tron
 |---|---|
 | ![gazebo](docs/gazebo_overview.png) | ![lines](docs/gazebo_lines.png) |
 
-| Gazebo + Nav2: AMR chở thùng SP (khay nâng) rời B3_OUT sang dây chuyền đóng gói | RViz2: layout, đồ thị giao thông, robot, lidar, nhóm hiển thị Nav2, ảnh camera 3D |
+| Gazebo + Nav2: AMR chở thùng SP (khay nâng) rời B3_OUT sang dây chuyền đóng gói | Gazebo + Nav2: AMR-02 (P2) né vào yield bay trên Đường Bắc 2 chiều, AMR-01 (P1) đi qua, sau đó AMR-02 bám lại route cũ |
 |---|---|
-| ![closeup](docs/gazebo_closeup.png) | ![rviz](docs/rviz_overview.png) |
+| ![closeup](docs/gazebo_closeup.png) | ![yield](docs/gazebo_yield.png) |
+
+![RViz2: layout, đồ thị giao thông, robot, lidar, nhóm hiển thị Nav2, ảnh camera 3D](docs/rviz_overview.png)
 
 | Yêu cầu | Cách đáp ứng |
 |---|---|
-| Fleet ≥ 10–15 AMR | `num_robots:=12` (mặc định), đã kiểm thử 10/12/15. Có 30 chỗ đỗ nên tối đa 30 robot |
+| Fleet ≥ 10–15 AMR | `num_robots:=12` (mặc định), 30 chỗ đỗ nên tối đa 30 robot. Đã kiểm thử 10/12/15 robot (mô phỏng headless 30 phút) và Gazebo + Nav2 với 2–3 robot (container không GPU) |
 | 1 trạm sạc tự động cho ≥ 5 robot | Trạm sạc 5 dock (CH1–CH5) giữa nhà máy, có hàng đợi sạc và cơ chế nhường dock |
 | Nhà máy rộng, 4 khu | Khu A kho linh kiện (5 trạm cấp) · Khu B **4 dây chuyền sản xuất** · Khu C **4 dây chuyền đóng gói** · Khu D kho thành phẩm (6 trạm) |
 | Mỗi khu dây chuyền 3–5 dây hoạt động liên tục, mô phỏng cả dây chuyền | 4 + 4 dây chuyền, mỗi dây có đủ trạm máy (xem mục 2). Sản phẩm di chuyển liên tục trên băng tải trong Gazebo (system `LineAnimator`), dừng khi MES báo dây chuyền dừng |
@@ -348,8 +350,9 @@ Từ 12 robot trở lên, đội xe không còn là nút cổ chai: sản lượ
 Đã chạy thử trên **Gazebo Harmonic (gz-sim 8)** với Nav2 + AMCL cho 3 robot, trong container không GPU (render
 phần mềm, RTF ≈ 0.3–0.5): robot spawn ở bãi đỗ, AMCL định vị trên bản đồ sinh từ world (sai số so với vị trí thật
 ≈ 0.12 m dọc làn, 0.07 m ngang làn, < 1°), `controller_server` bám đoạn route được cấp quyền, robot vào lay-by lấy
-kit ở khu A, khay hàng nâng lên khi chở, chở tới B*_IN, trả hàng rồi nhận task thùng thành phẩm từ B*_OUT.
-Sản phẩm chạy trên băng tải của cả 8 dây chuyền (`LineAnimator`).
+kit ở khu A, khay hàng nâng lên khi chở, chở tới B*_IN, trả hàng, rồi chở thùng SP từ B3_OUT sang C2_IN (5 task xong
+trong 550 s mô phỏng). Sản phẩm chạy trên băng tải của cả 8 dây chuyền (`LineAnimator`). Kịch bản đối đầu cũng chạy
+đúng với Nav2: AMR-02 (P2) né vào `Y.north.16`, AMR-01 (P1) đi qua, rồi AMR-02 bám lại route cũ tại `north.32`.
 
 ## 11. Hiệu năng và lưu ý
 

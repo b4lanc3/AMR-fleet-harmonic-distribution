@@ -61,6 +61,7 @@ class Nav2Driver:
     RESEND_PERIOD = 0.35      # s, min time between two goals
     YAW_TOL = 0.12
     ARRIVE_TOL = 0.20         # m: end of the route reached (Nav2 keeps approaching to 0.10)
+    MAX_STAMP_GAP_NS = 100_000_000   # amcl_pose vs odometry sample used for map -> odom
 
     def __init__(self, node: Node, robot_id: str, follower: PathFollower,
                  map_frame: str = 'map') -> None:
@@ -104,7 +105,9 @@ class Nav2Driver:
             return
         st = msg.header.stamp
         t = st.sec * 1_000_000_000 + st.nanosec
-        odom = min(self.odom_hist, key=lambda e: abs(e[0] - t))[1]
+        stamp, odom = min(self.odom_hist, key=lambda e: abs(e[0] - t))
+        if abs(stamp - t) > self.MAX_STAMP_GAP_NS:
+            return        # AMCL lags behind the odometry history: keep the last correction
         p = msg.pose.pose
         est = (p.position.x, p.position.y, _yaw(p.orientation))
         self.map_odom = _compose(est, _inverse(odom))

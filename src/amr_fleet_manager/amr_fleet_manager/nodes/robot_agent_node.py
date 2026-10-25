@@ -35,6 +35,7 @@ from sensor_msgs.msg import BatteryState, LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 
 from ..core.controller import MODE_HOLD, MODE_IDLE, FollowerParams, PathFollower
+from .executor import spin_nodes
 from .nav2_driver import Nav2Driver
 
 
@@ -122,7 +123,9 @@ class RobotAgent(Node):
         self.status_pub = self.create_publisher(RobotStatus, 'fleet/status', qos)
         self.batt_pub = self.create_publisher(BatteryState, 'battery', qos)
         self.create_timer(1.0 / gp('control_rate').value, self._control)
-        self.create_timer(1.0 / gp('status_rate').value, self._publish_status)
+        self.status_rate = gp('status_rate').value
+        self.status_count = 0
+        self.create_timer(1.0 / self.status_rate, self._publish_status)
         self.get_logger().info(f'{self.robot_id}: agent ready, driver {driver} '
                                f'(battery {self.battery:.0f}%)')
 
@@ -239,6 +242,10 @@ class RobotAgent(Node):
         st.obstacle_stop = f.s.obstacle_stop
         st.min_obstacle_distance = float(min(self.front_clearance, 99.0))
         self.status_pub.publish(st)
+        # battery and cargo lift change slowly: 1 Hz (the lift also on every change)
+        self.status_count += 1
+        if self.status_count % max(1, int(round(self.status_rate))) != 0:
+            return
         b = BatteryState()
         b.header = st.header
         b.percentage = float(self.battery / 100.0)
@@ -273,18 +280,7 @@ def main_fleet(args=None) -> None:
         if i < len(batt) and batt[i] > 0:
             ov['initial_battery'] = float(batt[i])
         nodes.append(RobotAgent(namespace=rid, overrides=ov))
-    ex = rclpy.executors.SingleThreadedExecutor()
-    for nd in nodes + [cfg]:
-        ex.add_node(nd)
-    try:
-        ex.spin()
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
-        pass
-    finally:
-        for nd in nodes + [cfg]:
-            nd.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    spin_nodes([cfg] + nodes)
 
 
 def main(args=None) -> None:

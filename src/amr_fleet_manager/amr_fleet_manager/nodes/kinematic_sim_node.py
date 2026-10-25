@@ -13,8 +13,10 @@ For each robot it provides exactly the interfaces the Gazebo bridge provides:
 
 from __future__ import annotations
 
+import array
 import math
 
+import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
@@ -27,6 +29,7 @@ from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 from ..core.layout import all_objects, build_graph, load_layout
 from ..sim.headless import spawn_poses
 from ..sim.kinematic import KinematicWorld
+from .executor import spin_nodes
 
 
 class KinematicSimNode(Node):
@@ -135,21 +138,14 @@ class KinematicSimNode(Node):
             msg.angle_increment = math.pi / (self.samples - 1)
             msg.range_min = 0.08
             msg.range_max = 12.0
-            msg.ranges = [float(r) if r < 12.0 else float('inf') for r in ranges]
+            r32 = np.where(ranges < 12.0, ranges, np.inf).astype(np.float32)
+            msg.ranges = array.array('f', r32.tobytes())
             self.scan_pubs[rid].publish(msg)
 
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = KinematicSimNode()
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
-        pass
-    finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    spin_nodes([KinematicSimNode()])
 
 
 if __name__ == '__main__':

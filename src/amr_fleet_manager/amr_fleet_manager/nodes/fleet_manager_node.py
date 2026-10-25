@@ -42,6 +42,7 @@ from visualization_msgs.msg import MarkerArray
 from ..core.fleet import Command, FleetCore, FleetParams, RobotStatusIn
 from ..core.layout import all_objects, build_graph, graph_to_dict, load_layout
 from .visualization import dynamic_markers, occupancy_grid, static_markers
+from .executor import spin_nodes
 
 
 def robot_ids_from(n: int, prefix: str) -> list:
@@ -362,15 +363,7 @@ def _json_default(o):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = FleetManagerNode()
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
-        pass
-    finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    spin_nodes([FleetManagerNode()])
 
 
 if __name__ == '__main__':

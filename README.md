@@ -367,5 +367,9 @@ trong 550 s mô phỏng). Sản phẩm chạy trên băng tải của cả 8 dâ
 * Để nhẹ CPU, mặc định tất cả `robot_agent` chạy trong 1 process (`fleet_agents`), mọi `robot_state_publisher` trong 1
   component container, Nav2 mỗi robot trong 1 `component_container_isolated`. Agent lấy pose từ `amcl_pose` ghép với
   odometry (đúng như TF) thay vì nghe toàn bộ `/tf` của cả đội trong Python.
+* `fleet_agents`, `fleet_manager` và `kinematic_sim` dùng **EventsExecutor** của rclpy (tham số `executor:=events`,
+  mặc định): SingleThreadedExecutor dựng lại wait-set của mọi subscription/timer cho từng callback, với 15 robot
+  riêng phần đó đã chiếm trọn một nhân. Đo với 15 robot: agent 99 % → 27 %, kinematic_sim ~90 % → 30 %,
+  fleet manager 40 % → 11 % CPU. `executor:=single` quay về executor cũ.
 * Tránh va chạm giữa các robot do fleet manager đảm bảo bằng đặt chỗ node; Nav2 lo bám đường, định vị và an toàn cục
   bộ (người, vật cản lạ).

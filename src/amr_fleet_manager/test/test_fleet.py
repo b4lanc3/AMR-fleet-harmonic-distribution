@@ -1,6 +1,6 @@
 import math
 
-from amr_fleet_manager.core.fleet import YIELDING, FleetCore, RobotStatusIn
+from amr_fleet_manager.core.fleet import YIELDING, RobotStatusIn
 from amr_fleet_manager.sim.headless import HeadlessSim
 
 

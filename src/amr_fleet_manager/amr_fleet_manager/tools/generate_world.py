@@ -835,15 +835,22 @@ def build_charging_area(layout, graph, slices, out: List[str]) -> None:
     if not graph.chargers:
         return
     m = Model('charging_station', slices)
-    xs = [graph.nodes[i].x for i in graph.chargers.values()]
+    xs = sorted(graph.nodes[i].x for i in graph.chargers.values())
     ys = [graph.nodes[i].y for i in graph.chargers.values()]
     y_back = max(ys) + 1.85
-    x0, x1 = min(xs) - 1.2, max(xs) + 1.2
-    # back panel with cable trays and a canopy
-    m.box((x0 + x1) / 2, y_back, 1.2, x1 - x0, 0.1, 2.4, 'wall_top')
-    m.box((x0 + x1) / 2, y_back - 0.6, 2.9, x1 - x0, 1.6, 0.08, 'galv', in_map=False)
-    for x in (x0 + 0.1, x1 - 0.1):
-        m.box(x, y_back - 1.3, 1.45, 0.08, 0.08, 2.9, 'steel', in_map=False)
+    # one back panel (cable trays, canopy) per group of neighbouring docks: an
+    # aisle running between two groups (the link lane) must stay open
+    groups = [[xs[0]]]
+    for x in xs[1:]:
+        if x - groups[-1][-1] > 4.5:
+            groups.append([])
+        groups[-1].append(x)
+    for grp in groups:
+        x0, x1 = grp[0] - 1.2, grp[-1] + 1.2
+        m.box((x0 + x1) / 2, y_back, 1.2, x1 - x0, 0.1, 2.4, 'wall_top')
+        m.box((x0 + x1) / 2, y_back - 0.6, 2.9, x1 - x0, 1.6, 0.08, 'galv', in_map=False)
+        for x in (x0 + 0.1, x1 - 0.1):
+            m.box(x, y_back - 1.3, 1.45, 0.08, 0.08, 2.9, 'steel')   # canopy post: lidar sees it
     out.append(m.sdf())
 
 

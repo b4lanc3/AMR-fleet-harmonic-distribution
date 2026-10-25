@@ -328,8 +328,9 @@ vài nghìn visual, nên lidar và camera của cả đội render nhanh (trên 
 cd src/amr_fleet_manager && python3 -m pytest -q test      # hoặc: colcon test --packages-select amr_fleet_manager
 ```
 
-Test bao gồm: dựng đồ thị (liên thông, yield bay ngoài làn, conflict đối xứng), bộ bám đường, vùng an toàn, theo dõi
-tiến độ route khi Nav2 cắt góc, ghép pose AMCL + odometry, kịch bản **đối đầu trên làn 2 chiều** (robot ưu tiên
+Test bao gồm: dựng đồ thị (liên thông, yield bay ngoài làn, conflict đối xứng), **world 3D không chắn làn nào**
+(mọi cạnh của đồ thị giao thông cách vật thể ≥ 0.35 m trên bản đồ ở độ cao lidar), bộ bám đường, vùng an toàn, theo
+dõi tiến độ route khi Nav2 cắt góc, ghép pose AMCL + odometry, kịch bản **đối đầu trên làn 2 chiều** (robot ưu tiên
 thấp vào yield bay, chờ, bám lại route cũ, cả hai về đích không va chạm), và mô phỏng 12–15 robot với tiêu chí 0 va
 chạm (kiểm tra va chạm hình chữ nhật xoay) và không robot nào kẹt quá 150 s.
 

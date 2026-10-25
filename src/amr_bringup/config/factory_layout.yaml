@@ -1,0 +1,197 @@
+# =============================================================================
+#  AMR Harmonic Factory - single source of truth for the whole simulation
+# -----------------------------------------------------------------------------
+#  This file is used by
+#    * amr_fleet_manager  -> traffic graph (lanes, intersections, bays), stations,
+#                           production process, chargers, parking
+#    * generate_world     -> Gazebo SDF world (walls, racks, lines, markings)
+#    * fleet_manager      -> occupancy grid + RViz markers
+#    * dashboard          -> 2D map in the web UI
+#
+#  Coordinates: metres, map/world frame, origin = south-west corner of the hall.
+#  Traffic is RIGHT-HAND: on a "dual" aisle the lane that runs in the aisle
+#  direction (from -> to) lies on the right side of the centre line.
+#  Lay-bys, docks and yield bays are always on the right side of a lane.
+# =============================================================================
+
+factory:
+  name: "AMR Harmonic Factory"
+  size: [100.0, 60.0]        # x (west->east), y (south->north)
+  wall_height: 6.0
+  wall_thickness: 0.3
+
+traffic:
+  lane_offset: 1.0           # dual lanes are +-1 m from the aisle centre line
+  node_spacing: 2.0          # max distance between consecutive lane nodes
+  bay_offset: 2.0            # lateral offset of lay-bys / yield bays
+  dock_offset: 2.5           # lateral offset of charger docks / parking bays
+  conflict_radius: 1.3       # two nodes closer than this can't be held by different robots
+  sweep_radius: 1.1          # a node this close to an edge blocks traversal of that edge
+  lane_speed: 1.0            # m/s on lanes
+  bay_speed: 0.45            # m/s inside lay-bys, docks, bays
+  two_way_cost_factor: 1.10  # planner penalty for single two-way lanes
+  yield_bay_spacing: 14.0    # automatic yield bays every N metres (dual lanes)
+  yield_bay_clearance: 0.75  # obstacle clearance required around a yield bay
+
+# Aisles. type: dual -> two one-way lanes "<id>+" (from->to) and "<id>-" (to->from)
+#              single -> one two-way lane "<id>" (narrow aisle, needs yield bays)
+aisles:
+  - {id: south, name: "Duong Nam",       type: dual,   from: [4.0, 5.0],  to: [96.0, 5.0]}
+  - {id: spine, name: "Truc chinh",      type: dual,   from: [4.0, 30.0], to: [96.0, 30.0]}
+  - {id: north, name: "Duong Bac 2 chieu", type: single, from: [4.0, 55.0], to: [96.0, 55.0],
+     yield_side: left, yield_bay_spacing: 10.0}
+  - {id: west,  name: "Duong Tay",       type: dual,   from: [5.0, 4.0],  to: [5.0, 55.0]}
+  - {id: mid,   name: "Truc giua 2 chieu", type: single, from: [35.0, 4.0], to: [35.0, 55.0],
+     yield_side: right, yield_bay_spacing: 8.0}
+  - {id: east,  name: "Duong Dong",      type: dual,   from: [95.0, 4.0], to: [95.0, 55.0]}
+  - {id: link,  name: "Ngo tat 2 chieu", type: single, from: [70.0, 4.0], to: [70.0, 55.0],
+     yield_side: right, yield_bay_spacing: 8.0}
+
+# Floor zones (visual + dashboard). rect = [xmin, ymin, xmax, ymax]
+zones:
+  - {id: A,   name: "Khu A - Kho linh kien",          rect: [7.0, 32.0, 33.0, 53.0],  color: [0.20, 0.55, 0.95]}
+  - {id: B,   name: "Khu B - Day chuyen san xuat",    rect: [37.0, 32.0, 93.0, 53.0], color: [0.95, 0.60, 0.15]}
+  - {id: C,   name: "Khu C - Day chuyen dong goi",    rect: [37.0, 7.0, 93.0, 28.0],  color: [0.60, 0.35, 0.90]}
+  - {id: D,   name: "Khu D - Kho thanh pham",         rect: [7.0, 7.0, 33.0, 28.0],   color: [0.20, 0.75, 0.40]}
+  - {id: CHG, name: "Tram sac tu dong (5 dock)",      rect: [60.0, 32.4, 79.0, 35.4], color: [0.95, 0.85, 0.10]}
+  - {id: PK,  name: "Bai do Tay",                      rect: [0.0, 9.0, 2.8, 51.0],    color: [0.55, 0.55, 0.55]}
+  - {id: PK2, name: "Bai do Dong",                     rect: [97.2, 9.0, 100.0, 50.0], color: [0.55, 0.55, 0.55]}
+
+# Stations are drive-through lay-bys on the right side of a lane:
+#   lane -> Q (queue slot) -> S (service slot) -> lane.  `at` = point on the lane
+# next to S.  type: pickup | dropoff.  object: what stands next to S.
+# On a two-way lane the lay-by can only be entered in the lane's "from -> to"
+# direction; robots coming the other way pass it and turn into Q, so a robot
+# waiting for a busy station never blocks the lane.
+stations:
+  # --- Zone A : component supermarket (pick-up of component kits) -----------
+  #     on the natural loop D -> west+ (north) -> A -> north (east) -> B_IN
+  - {id: A1, zone: A, type: pickup,  lane: west+,  at: [6.0, 37.0],  object: kit_rack}
+  - {id: A2, zone: A, type: pickup,  lane: west+,  at: [6.0, 43.0],  object: kit_rack}
+  - {id: A3, zone: A, type: pickup,  lane: west+,  at: [6.0, 49.0],  object: kit_rack}
+  - {id: A4, zone: A, type: pickup,  lane: north,  at: [14.0, 55.0], object: kit_rack}
+  # --- Zone B : production lines (input = kits, output = boxes of products) --
+  - {id: B1_IN,  zone: B, type: dropoff, lane: north,  at: [44.0, 55.0], object: conveyor_in}
+  - {id: B2_IN,  zone: B, type: dropoff, lane: north,  at: [56.0, 55.0], object: conveyor_in}
+  - {id: B3_IN,  zone: B, type: dropoff, lane: north,  at: [84.0, 55.0], object: conveyor_in}
+  - {id: B1_OUT, zone: B, type: pickup,  lane: spine-, at: [44.0, 31.0], object: conveyor_out}
+  - {id: B2_OUT, zone: B, type: pickup,  lane: spine-, at: [56.0, 31.0], object: conveyor_out}
+  - {id: B3_OUT, zone: B, type: pickup,  lane: spine-, at: [84.0, 31.0], object: conveyor_out}
+  # --- Zone C : packaging lines (input = boxes, output = finished pallets) ---
+  - {id: C1_IN,  zone: C, type: dropoff, lane: spine+, at: [52.0, 29.0], object: conveyor_in}
+  - {id: C2_IN,  zone: C, type: dropoff, lane: spine+, at: [84.0, 29.0], object: conveyor_in}
+  - {id: C1_OUT, zone: C, type: pickup,  lane: south-, at: [52.0, 6.0],  object: conveyor_out}
+  - {id: C2_OUT, zone: C, type: pickup,  lane: south-, at: [84.0, 6.0],  object: conveyor_out}
+  # --- Zone D : finished goods storage ---------------------------------------
+  - {id: D1, zone: D, type: dropoff, lane: south-, at: [28.0, 6.0], object: storage_table}
+  - {id: D2, zone: D, type: dropoff, lane: south-, at: [22.0, 6.0], object: storage_table}
+  - {id: D3, zone: D, type: dropoff, lane: south-, at: [16.0, 6.0], object: storage_table}
+  - {id: D4, zone: D, type: dropoff, lane: south-, at: [10.0, 6.0], object: storage_table}
+
+# Automatic charging station: 5 dead-end docks in the centre of the hall,
+# on the north side of the main spine (between production lines B2 and B3).
+chargers:
+  - {id: CH1, lane: spine-, at: [77.0, 31.0]}
+  - {id: CH2, lane: spine-, at: [74.0, 31.0]}
+  - {id: CH3, lane: spine-, at: [67.5, 31.0]}
+  - {id: CH4, lane: spine-, at: [64.5, 31.0]}
+  - {id: CH5, lane: spine-, at: [61.5, 31.0]}
+
+# Parking bays (dead-end). Robots spawn here in id order (P01 -> amr_01 ...).
+parking:
+  - {id: P01, lane: west-, at: [4.0, 50.0]}
+  - {id: P02, lane: west-, at: [4.0, 47.0]}
+  - {id: P03, lane: west-, at: [4.0, 44.0]}
+  - {id: P04, lane: west-, at: [4.0, 41.0]}
+  - {id: P05, lane: west-, at: [4.0, 38.0]}
+  - {id: P06, lane: west-, at: [4.0, 35.0]}
+  - {id: P07, lane: west-, at: [4.0, 25.0]}
+  - {id: P08, lane: west-, at: [4.0, 22.0]}
+  - {id: P09, lane: west-, at: [4.0, 19.0]}
+  - {id: P10, lane: west-, at: [4.0, 16.0]}
+  - {id: P11, lane: west-, at: [4.0, 13.0]}
+  - {id: P12, lane: west-, at: [4.0, 10.0]}
+  - {id: P13, lane: east+, at: [96.0, 10.0]}
+  - {id: P14, lane: east+, at: [96.0, 13.0]}
+  - {id: P15, lane: east+, at: [96.0, 16.0]}
+  - {id: P16, lane: east+, at: [96.0, 19.0]}
+  - {id: P17, lane: east+, at: [96.0, 22.0]}
+  - {id: P18, lane: east+, at: [96.0, 25.0]}
+  - {id: P19, lane: east+, at: [96.0, 36.0]}
+  - {id: P20, lane: east+, at: [96.0, 40.0]}
+  - {id: P21, lane: east+, at: [96.0, 44.0]}
+  - {id: P22, lane: east+, at: [96.0, 48.0]}
+
+# Static objects. rect = [xmin, ymin, xmax, ymax], z from 0 to height.
+# kind decides how the world generator dresses them up.
+objects:
+  # Zone A - component racks (4 rows)
+  - {kind: rack, rect: [10.4, 35.4, 30.0, 36.6], height: 3.2}
+  - {kind: rack, rect: [10.0, 39.9, 30.0, 41.1], height: 3.2}
+  - {kind: rack, rect: [10.0, 44.4, 30.0, 45.6], height: 3.2}
+  - {kind: rack, rect: [10.0, 48.4, 30.0, 49.6], height: 3.2}
+  # Zone B - production line 1/2/3 (north -> south): conveyor + machines
+  - {kind: conveyor, rect: [43.5, 35.0, 44.5, 50.8], height: 0.9, line: B1}
+  - {kind: machine,  rect: [41.2, 38.0, 43.3, 41.0], height: 2.2, line: B1}
+  - {kind: machine,  rect: [44.7, 42.0, 46.8, 45.5], height: 2.6, line: B1}
+  - {kind: machine,  rect: [41.2, 46.0, 43.3, 48.5], height: 2.0, line: B1}
+  - {kind: conveyor, rect: [55.5, 35.0, 56.5, 50.8], height: 0.9, line: B2}
+  - {kind: machine,  rect: [53.2, 38.0, 55.3, 41.0], height: 2.2, line: B2}
+  - {kind: machine,  rect: [56.7, 42.0, 58.8, 45.5], height: 2.6, line: B2}
+  - {kind: machine,  rect: [53.2, 46.0, 55.3, 48.5], height: 2.0, line: B2}
+  - {kind: conveyor, rect: [83.5, 35.0, 84.5, 50.8], height: 0.9, line: B3}
+  - {kind: machine,  rect: [81.2, 38.0, 83.3, 41.0], height: 2.2, line: B3}
+  - {kind: machine,  rect: [84.7, 42.0, 86.8, 45.5], height: 2.6, line: B3}
+  - {kind: machine,  rect: [81.2, 46.0, 83.3, 48.5], height: 2.0, line: B3}
+  # Zone C - packaging line 1/2 (north -> south)
+  - {kind: conveyor, rect: [51.5, 9.4, 52.5, 25.6], height: 0.9, line: C1}
+  - {kind: packer,   rect: [49.0, 13.0, 51.3, 16.5], height: 2.4, line: C1}
+  - {kind: packer,   rect: [52.7, 18.0, 55.0, 21.5], height: 2.4, line: C1}
+  - {kind: conveyor, rect: [83.5, 9.4, 84.5, 25.6], height: 0.9, line: C2}
+  - {kind: packer,   rect: [81.0, 13.0, 83.3, 16.5], height: 2.4, line: C2}
+  - {kind: packer,   rect: [84.7, 18.0, 87.0, 21.5], height: 2.4, line: C2}
+  # Zone C - pallets of packaging material
+  - {kind: pallet,   rect: [60.0, 12.0, 61.2, 13.2], height: 1.2}
+  - {kind: pallet,   rect: [60.0, 15.0, 61.2, 16.2], height: 1.2}
+  - {kind: pallet,   rect: [62.5, 12.0, 63.7, 13.2], height: 0.8}
+  # Zone D - finished goods pallet racks (4 rows)
+  - {kind: rack, rect: [10.0, 11.4, 30.0, 12.6], height: 4.0}
+  - {kind: rack, rect: [10.0, 15.9, 30.0, 17.1], height: 4.0}
+  - {kind: rack, rect: [10.0, 20.4, 30.0, 21.6], height: 4.0}
+  - {kind: rack, rect: [10.0, 24.4, 30.0, 25.6], height: 4.0}
+  # Building columns
+  - {kind: column, rect: [64.75, 41.75, 65.25, 42.25], height: 6.0}
+  - {kind: column, rect: [76.75, 41.75, 77.25, 42.25], height: 6.0}
+  - {kind: column, rect: [64.75, 16.75, 65.25, 17.25], height: 6.0}
+  - {kind: column, rect: [76.75, 16.75, 77.25, 17.25], height: 6.0}
+  # Charger units (one behind each dock) + a back wall for the charging bay
+  - {kind: charger, rect: [76.6, 34.55, 77.4, 35.05], height: 1.1}
+  - {kind: charger, rect: [73.6, 34.55, 74.4, 35.05], height: 1.1}
+  - {kind: charger, rect: [67.1, 34.55, 67.9, 35.05], height: 1.1}
+  - {kind: charger, rect: [64.1, 34.55, 64.9, 35.05], height: 1.1}
+  - {kind: charger, rect: [61.1, 34.55, 61.9, 35.05], height: 1.1}
+
+# -----------------------------------------------------------------------------
+#  Manufacturing process (simulated MES).  Cycle:
+#   A (kit of components) --AMR--> B_IN  -> production line -> unpacked products
+#   products are put into boxes at B_OUT  --AMR--> C_IN -> packaging line packs
+#   every product -> finished pallet at C_OUT --AMR--> D (finished goods store)
+# -----------------------------------------------------------------------------
+process:
+  load_time: 8.0              # s to load a robot at a pick-up station
+  unload_time: 8.0            # s to unload at a drop-off station
+  supply_stations: [A1, A2, A3, A4]
+  storage_stations: [D1, D2, D3, D4]
+  storage_capacity: 240       # products per D station before it is shipped out
+  production_lines:
+    - {id: B1, name: "Day chuyen SX 1", input: B1_IN, output: B1_OUT, cycle_time: 16.0,
+       products_per_kit: 12, box_capacity: 6, input_capacity: 3, output_capacity: 2, target_input: 2}
+    - {id: B2, name: "Day chuyen SX 2", input: B2_IN, output: B2_OUT, cycle_time: 16.0,
+       products_per_kit: 12, box_capacity: 6, input_capacity: 3, output_capacity: 2, target_input: 2}
+    - {id: B3, name: "Day chuyen SX 3", input: B3_IN, output: B3_OUT, cycle_time: 16.0,
+       products_per_kit: 12, box_capacity: 6, input_capacity: 3, output_capacity: 2, target_input: 2}
+  packaging_lines:
+    - {id: C1, name: "Day chuyen dong goi 1", input: C1_IN, output: C1_OUT, pack_time: 9.0,
+       input_capacity: 3, output_capacity: 2}
+    - {id: C2, name: "Day chuyen dong goi 2", input: C2_IN, output: C2_OUT, pack_time: 9.0,
+       input_capacity: 3, output_capacity: 2}

@@ -1,0 +1,532 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+  Help Height: 0
+- Class: rviz_common/Views
+  Name: Views
+Visualization Manager:
+  Class: ''
+  Displays:
+  - Class: rviz_default_plugins/Grid
+    Name: Grid
+    Enabled: false
+    Cell Size: 5
+    Plane Cell Count: 24
+    Offset:
+      X: 50.0
+      Y: 30.0
+      Z: 0
+  - Class: rviz_default_plugins/Map
+    Name: Factory map
+    Enabled: true
+    Alpha: 0.35
+    Color Scheme: map
+    Draw Behind: true
+    Topic:
+      Depth: 5
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /map
+    Update Topic:
+      Depth: 5
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /map_updates
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Factory layout & traffic graph
+    Enabled: true
+    Namespaces: {}
+    Topic:
+      Depth: 5
+      Durability Policy: Transient Local
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /fleet/static_markers
+  - Class: rviz_default_plugins/MarkerArray
+    Name: 'Fleet: labels, routes, reservations'
+    Enabled: true
+    Namespaces: {}
+    Topic:
+      Depth: 5
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /fleet/markers
+  - Class: rviz_common/Group
+    Name: Robots
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_01
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_01/robot_description
+      TF Prefix: amr_01
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_02
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_02/robot_description
+      TF Prefix: amr_02
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_03
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_03/robot_description
+      TF Prefix: amr_03
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_04
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_04/robot_description
+      TF Prefix: amr_04
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_05
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_05/robot_description
+      TF Prefix: amr_05
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_06
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_06/robot_description
+      TF Prefix: amr_06
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_07
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_07/robot_description
+      TF Prefix: amr_07
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_08
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_08/robot_description
+      TF Prefix: amr_08
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_09
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_09/robot_description
+      TF Prefix: amr_09
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_10
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_10/robot_description
+      TF Prefix: amr_10
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_11
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_11/robot_description
+      TF Prefix: amr_11
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: amr_12
+      Enabled: true
+      Alpha: 1
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /amr_12/robot_description
+      TF Prefix: amr_12
+      Visual Enabled: true
+      Collision Enabled: false
+      Update Interval: 0
+  - Class: rviz_common/Group
+    Name: Lidar 2D
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_01 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_01/scan
+      Color Transformer: FlatColor
+      Color: 42; 120; 214
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_02 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_02/scan
+      Color Transformer: FlatColor
+      Color: 235; 104; 52
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_03 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_03/scan
+      Color Transformer: FlatColor
+      Color: 27; 175; 122
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_04 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_04/scan
+      Color Transformer: FlatColor
+      Color: 237; 161; 0
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_05 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_05/scan
+      Color Transformer: FlatColor
+      Color: 232; 123; 164
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_06 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_06/scan
+      Color Transformer: FlatColor
+      Color: 0; 131; 0
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_07 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_07/scan
+      Color Transformer: FlatColor
+      Color: 98; 80; 214
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_08 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_08/scan
+      Color Transformer: FlatColor
+      Color: 227; 73; 72
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_09 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_09/scan
+      Color Transformer: FlatColor
+      Color: 25; 72; 128
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_10 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_10/scan
+      Color Transformer: FlatColor
+      Color: 140; 62; 31
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_11 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_11/scan
+      Color Transformer: FlatColor
+      Color: 16; 105; 73
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: amr_12 lidar
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_12/scan
+      Color Transformer: FlatColor
+      Color: 142; 96; 0
+      Size (m): 0.05
+      Style: Points
+      Size (Pixels): 3
+      Decay Time: 0
+      Queue Size: 5
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+  - Class: rviz_common/Group
+    Name: 3D camera (amr_01)
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: points
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_01/camera/points
+      Color Transformer: RGB8
+      Style: Points
+      Size (Pixels): 2
+      Size (m): 0.02
+      Decay Time: 0
+      Position Transformer: XYZ
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/Image
+      Name: rgb image
+      Enabled: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /amr_01/camera/image
+      Normalize Range: true
+      Max Value: 1
+      Min Value: 0
+  Enabled: true
+  Global Options:
+    Background Color: 42; 44; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+  - Class: rviz_default_plugins/Interact
+  - Class: rviz_default_plugins/MoveCamera
+  - Class: rviz_default_plugins/Select
+  - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Factory
+      Distance: 78.0
+      Pitch: 1.05
+      Yaw: 4.71
+      Focal Point:
+        X: 50.0
+        Y: 26.0
+        Z: 0.0
+      Field of View: 0.785
+      Near Clip Distance: 0.01
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz)
+    Saved:
+    - Class: rviz_default_plugins/TopDownOrtho
+      Name: Top down
+      Scale: 14.0
+      X: 50.0
+      Y: 30.0
+      Angle: 0
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+Window Geometry:
+  Width: 1600
+  Height: 960
+  Hide Left Dock: false
+  Displays:
+    collapsed: false

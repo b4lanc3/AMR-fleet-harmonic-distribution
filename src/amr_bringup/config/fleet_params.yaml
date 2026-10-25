@@ -1,0 +1,27 @@
+# Parameters of the fleet nodes (launch arguments override num_robots,
+# priority_mode and the layout file).
+/**/fleet_manager:
+  ros__parameters:
+    rate: 10.0                 # traffic control / dispatch cycle [Hz]
+    state_rate: 2.0            # /fleet/state + dashboard snapshot [Hz]
+    marker_rate: 4.0           # RViz markers [Hz]
+    heartbeat: 1.0             # re-send unchanged route commands every N s
+    priority_mode: dynamic     # dynamic: task priority + cargo + battery + waiting time + base rank
+                               # static : base rank only (amr_01 = highest)
+    battery_low: 30.0          # go charging after the current task
+    battery_critical: 15.0     # abort an empty trip and go charging now
+    battery_full: 95.0         # leave the dock
+    battery_opportunistic: 50.0
+    station_capacity: 2        # robots booked per station (service slot + queue slot)
+
+/**/robot_agent:
+  ros__parameters:
+    control_rate: 20.0
+    status_rate: 10.0
+    max_speed: 1.0             # m/s
+    safety_stop_distance: 0.30 # lidar protective field [m]
+    safety_slow_distance: 0.85 # lidar warning field [m]
+    safety_half_angle_deg: 35.0
+    battery_idle_drain: 0.004  # %/s
+    battery_move_drain: 0.030  # %/s per m/s
+    battery_charge_rate: 0.25  # %/s on the dock

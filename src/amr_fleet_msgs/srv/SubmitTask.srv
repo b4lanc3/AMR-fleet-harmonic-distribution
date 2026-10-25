@@ -1,0 +1,9 @@
+# Create a manual transport task (e.g. from the dashboard).
+string pickup        # station id, e.g. A1
+string dropoff       # station id, e.g. D2
+int32 priority       # 0..3
+string description
+---
+bool accepted
+string task_id
+string message

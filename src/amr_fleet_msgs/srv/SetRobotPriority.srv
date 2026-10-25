@@ -1,0 +1,8 @@
+# Change the static base rank of a robot (1 = most important) or pause it.
+string robot_id
+int32 base_rank      # <= 0 keeps the current value
+bool set_paused
+bool paused
+---
+bool success
+string message

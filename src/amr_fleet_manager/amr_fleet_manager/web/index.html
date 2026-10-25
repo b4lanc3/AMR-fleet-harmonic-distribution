@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMR Fleet Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">◈</span>
+    <div>
+      <h1>AMR Fleet Harmonic Distribution</h1>
+      <p class="sub">Bảng điều phối đội xe tự hành · nhà máy 4 khu</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="conn" class="chip chip-muted">● đang kết nối…</span>
+    <span id="clock" class="chip chip-muted">t = 0 s</span>
+    <span id="fleetState" class="chip">—</span>
+    <button id="btnPause" class="btn">Tạm dừng fleet</button>
+    <button id="btnTheme" class="btn btn-ghost" title="Đổi giao diện sáng / tối">◐</button>
+  </div>
+</header>
+
+<main>
+  <section class="kpis" id="kpis" aria-label="Chỉ số tổng quan"></section>
+
+  <section class="grid-main">
+    <div class="card map-card">
+      <div class="card-head">
+        <h2>Bản đồ nhà máy (thời gian thực)</h2>
+        <div class="legend" id="mapLegend">
+          <span><i class="lg lg-lane"></i>Làn 1 chiều</span>
+          <span><i class="lg lg-two"></i>Làn 2 chiều</span>
+          <span><i class="lg lg-route"></i>Lộ trình</span>
+          <span><i class="lg lg-grant"></i>Đoạn đã cấp quyền</span>
+          <label class="toggle"><input type="checkbox" id="optRoutes" checked> tất cả lộ trình</label>
+        </div>
+      </div>
+      <div class="map-wrap"><canvas id="map"></canvas><div id="tip" class="tip" hidden></div></div>
+    </div>
+    <aside class="card detail-card" id="detail">
+      <div class="card-head"><h2>Chi tiết robot</h2></div>
+      <div id="detailBody" class="detail-empty">Chọn một robot trên bản đồ hoặc trong bảng.</div>
+    </aside>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Đội robot: đang làm gì, đi route nào, ETA, task tiếp theo</h2>
+      <span class="hint">Hàng ưu tiên P1 = cao nhất. Robot ưu tiên thấp sẽ né vào yield bay khi gặp robot ưu tiên cao hơn rồi bám lại route cũ.</span>
+    </div>
+    <div class="table-wrap">
+      <table class="tbl" id="robots">
+        <thead><tr>
+          <th>Robot</th><th>Ưu tiên</th><th>Trạng thái</th><th>Đang làm gì</th>
+          <th>Lộ trình (route)</th><th class="num">ETA đích</th><th class="num">ETA xong task</th>
+          <th>Task tiếp theo</th><th>Pin</th><th>Chờ / nhường</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="grid-3">
+    <div class="card">
+      <div class="card-head"><h2>Dây chuyền &amp; kho</h2></div>
+      <div id="lines"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Trạm sạc tự động</h2></div>
+      <div id="chargers"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Tạo task thủ công</h2></div>
+      <form id="taskForm" class="form">
+        <label>Điểm lấy hàng <select id="fPickup"></select></label>
+        <label>Điểm trả hàng <select id="fDropoff"></select></label>
+        <label>Mức ưu tiên
+          <select id="fPrio">
+            <option value="0">0 · Thấp</option><option value="1" selected>1 · Bình thường</option>
+            <option value="2">2 · Cao</option><option value="3">3 · Khẩn cấp</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit">Tạo task</button>
+        <p id="formMsg" class="hint"></p>
+      </form>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <div class="card-head"><h2>Hàng đợi task</h2><span class="hint" id="taskCount"></span></div>
+      <div class="table-wrap short">
+        <table class="tbl" id="tasks">
+          <thead><tr><th>Task</th><th>Loại</th><th>Lấy → Trả</th><th>Ưu tiên</th><th>Trạng thái</th><th>Robot</th><th class="num">Tuổi</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Nhật ký điều phối</h2>
+        <select id="evFilter" class="mini">
+          <option value="">Tất cả</option><option value="YIELD">Né đường</option>
+          <option value="TRAFFIC">Giao thông</option><option value="TASK">Task</option>
+          <option value="CHARGE">Sạc pin</option><option value="SYSTEM">Hệ thống</option>
+        </select>
+      </div>
+      <ul id="events" class="events"></ul>
+    </div>
+  </section>
+</main>
+<footer class="foot">ROS 2 Jazzy · Gazebo Harmonic · dữ liệu từ <code>/fleet/snapshot_json</code></footer>
+<script src="app.js"></script>
+</body>
+</html>

@@ -30,8 +30,8 @@ def wrap(a: float) -> float:
 
 @dataclass
 class FollowerParams:
-    max_speed: float = 1.0
-    max_accel: float = 0.7
+    max_speed: float = 1.5
+    max_accel: float = 0.9
     max_decel: float = 0.9
     max_omega: float = 1.3
     omega_accel: float = 3.0
@@ -42,7 +42,7 @@ class FollowerParams:
     final_tol: float = 0.10
     yaw_tol: float = 0.06
     rotate_threshold: float = 0.85   # rad: above this heading error -> rotate in place
-    corner_speed: float = 0.35
+    corner_speed: float = 0.5
     safety_stop: float = 0.30        # m in front of the lidar
     safety_slow: float = 0.85
     slow_speed: float = 0.25
@@ -62,6 +62,7 @@ class FollowerState:
     v: float = 0.0
     w: float = 0.0
     obstacle_stop: bool = False
+    rev: int = 0                 # waypoints / speed limits updated within the same command
 
 
 class PathFollower:
@@ -84,6 +85,17 @@ class PathFollower:
                 s.cum.append(s.cum[-1] + math.dist(a, b))
             s.reached = 0 if s.waypoints else -1
             s.complete = len(s.waypoints) <= 1 and math.isnan(final_yaw)
+            s.rev += 1
+        elif len(waypoints) == len(s.waypoints):
+            # same route re-shaped (shifted to pass another robot): keep the progress
+            wps = [(float(x), float(y)) for x, y in waypoints]
+            lims = list(speed_limits) or [self.p.max_speed] * len(wps)
+            if wps != s.waypoints or lims != s.speed_limits:
+                s.waypoints, s.speed_limits = wps, lims
+                s.cum = [0.0]
+                for a, b in zip(wps, wps[1:]):
+                    s.cum.append(s.cum[-1] + math.dist(a, b))
+                s.rev += 1
         s.mode = mode
         s.granted = min(granted, len(s.waypoints) - 1)
         s.final_yaw = final_yaw

@@ -205,6 +205,8 @@ class LayoutBuilder:
         self.lanes: Dict[str, Lane] = {}
         self.graph = TrafficGraph()
         self.graph.two_way_cost_factor = self.two_way_factor
+        self.graph.lane_speed = self.lane_speed
+        self.graph.bay_speed = self.bay_speed
         self.warnings: List[str] = []
 
     # -------------------------------------------------------------- lanes
@@ -485,7 +487,47 @@ def build_graph(layout: dict) -> TrafficGraph:
     graph = builder.build()
     graph.build_warnings = builder.warnings  # type: ignore[attr-defined]
     graph.lanes = builder.lanes              # type: ignore[attr-defined]
+    mark_passing_nodes(layout, graph)
     return graph
+
+
+def _rect_distance(p: Vec, rect: Sequence[float]) -> float:
+    x0, y0, x1, y1 = rect
+    dx = max(x0 - p[0], 0.0, p[0] - x1)
+    dy = max(y0 - p[1], 0.0, p[1] - y1)
+    return math.hypot(dx, dy)
+
+
+def mark_passing_nodes(layout: dict, graph: TrafficGraph) -> None:
+    """Lane nodes of two-way lanes where two AMRs driving in opposite
+    directions can pass each other, both shifted `pass_offset` to their right:
+    both shifted points must keep `pass_clearance` from every object
+    (intersections are excluded)."""
+    tr = layout.get('traffic', {}) or {}
+    off = float(tr.get('pass_offset', 0.7))
+    clear = float(tr.get('pass_clearance', 0.55))
+    graph.pass_offset = off
+    W, H = (layout.get('factory', {}) or {}).get('size', [100.0, 60.0])
+    rects = [o['rect'] for o in all_objects(layout, graph)]
+    lanes = getattr(graph, 'lanes', {}) or {}
+    for n in graph.nodes:
+        if n.kind != LANE or len(n.lanes) != 1:
+            continue
+        ln = lanes.get(n.lanes[0])
+        if ln is None or not ln.two_way:
+            continue
+        rx, ry = ln.right
+        ok = True
+        for side in (1.0, -1.0):
+            p = (n.x + side * off * rx, n.y + side * off * ry)
+            if not (clear <= p[0] <= W - clear and clear <= p[1] <= H - clear) or \
+                    any(_rect_distance(p, r) < clear for r in rects):
+                ok = False
+                break
+        if ok:
+            graph.pass_nodes.add(n.idx)
+            graph.pass_lane[n.idx] = ln.id
+            graph.pass_axis[n.idx] = ln.dir
 
 
 def station_objects(layout: dict, graph: TrafficGraph) -> List[dict]:

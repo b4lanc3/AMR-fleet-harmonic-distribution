@@ -79,6 +79,21 @@ def robot_params(template: str, rid: str, pose, camera: bool, full_stack: bool,
     return data
 
 
+def humble_collision_monitor(cm: dict) -> None:
+    """Collision monitor parameters in the Humble (Nav2 1.1) format: polygon points
+    as a flat [x0, y0, x1, y1, ...] array, `max_points` (points allowed inside the
+    zone) instead of `min_points`, one global source_timeout, no state topic."""
+    cm.pop('state_topic', None)
+    for name in cm.get('polygons', []):
+        poly = cm[name]
+        if isinstance(poly.get('points'), str):
+            poly['points'] = [float(v) for xy in yaml.safe_load(poly['points']) for v in xy]
+        if 'min_points' in poly:
+            poly['max_points'] = int(poly.pop('min_points')) - 1
+    for name in cm.get('observation_sources', []):
+        cm.get(name, {}).pop('source_timeout', None)
+
+
 def robot_navigation(rid: str, params_file: str, full_stack: bool, log_level: str):
     nodes = [
         ComposableNode(package='nav2_amcl', plugin='nav2_amcl::AmclNode', name='amcl',
@@ -148,6 +163,8 @@ def launch_setup(context, *args, **kwargs):
     for i, pose in enumerate(poses):
         rid = robot_name(i)
         data = robot_params(template, rid, pose, camera, full, docks)
+        if os.environ.get('ROS_DISTRO') == 'humble':
+            humble_collision_monitor(data[f'/{rid}/collision_monitor']['ros__parameters'])
         if not sim_time:
             for v in data.values():
                 v['ros__parameters']['use_sim_time'] = False

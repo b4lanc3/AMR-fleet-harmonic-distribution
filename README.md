@@ -71,8 +71,9 @@ Mô phỏng **đội 10–15 AMR (tối đa 30)** vận chuyển nội bộ tron
 **Phân vai Nav2 ↔ fleet manager.** Fleet manager quyết định robot được đi *đâu* và *tới đâu* (đặt chỗ node trên đồ
 thị làn, ai nhường ai). `robot_agent` biến đoạn route đã được cấp quyền thành `nav_msgs/Path` dày (0.1 m) và gửi cho
 `controller_server` qua action **FollowPath**; mỗi khi quyền đi được nới thêm thì path được gửi lại (preempt) nên robot
-chạy liên tục, không dừng ở từng node. Tốc độ giới hạn của làn (1.0 m/s trên làn, 0.45 m/s trong lay-by/dock) gửi qua
-topic `speed_limit` của Nav2. Vị trí robot là ước lượng AMCL. Lidar + camera 3D vào local costmap (RPP tránh va chạm)
+chạy liên tục, không dừng ở từng node. Tốc độ giới hạn của làn (1.5 m/s trên làn, 0.65 m/s trong lay-by/dock) gửi qua
+topic `speed_limit` của Nav2; khi đoạn được cấp quyền kết thúc trước đích, agent giảm tốc sớm và êm (0.6 m/s²) theo
+quãng đường còn lại thay vì chạy hết tốc rồi phanh gấp, nên thường quyền đi được nới trước khi robot phải dừng. Vị trí robot là ước lượng AMCL. Lidar + camera 3D vào local costmap (RPP tránh va chạm)
 và `collision_monitor` (vùng dừng 0.3 m, vùng giảm tốc 0.85 m trước robot).
 
 | Package | Nội dung |
@@ -149,7 +150,7 @@ chở chuyến đầu.
 | Odometry | DiffDrive (odometry bánh xe, có trôi như robot thật) → `/amr_XX/odom` + TF `amr_XX/odom → amr_XX/base_footprint`; vị trí thật giữ ở `/amr_XX/ground_truth` để đối chiếu |
 | Định vị | AMCL (likelihood field, 300–1500 hạt) trên `/map`, phát TF `map → amr_XX/odom` |
 | Khay hàng | Khớp tịnh tiến `cargo_joint`: khi robot chở hàng, kiện hàng nâng lên sàn xe (`/amr_XX/cargo_lift`); khi không chở, kiện hàng hạ xuống dưới sàn để không cắt mặt phẳng lidar |
-| Tốc độ | 1.0 m/s trên làn, 0.45 m/s trong lay-by/dock, quay tại chỗ khi lệch hướng lớn |
+| Tốc độ | 1.5 m/s trên làn, 0.65 m/s trong lay-by/dock, quay tại chỗ khi lệch hướng lớn |
 | An toàn | `collision_monitor`: vùng dừng 0.30 m, vùng giảm tốc 0.85 m trước robot, từ lidar + point cloud camera |
 
 ## 4. Điều phối giao thông (cốt lõi)
@@ -159,19 +160,25 @@ Mỗi chu kỳ 10 Hz, `core/traffic.py` và `core/fleet.py` làm các bước sa
 1. **Ô đang giữ (held)**: node robot đang đứng, node nó đang đi tới và mọi node robot không kịp phanh trước đó. Đây
    là khoá cứng, robot nào giữ thì robot đó sở hữu.
 2. **Cấp quyền đi (grant)** cho từng robot **theo thứ tự ưu tiên giảm dần**: cấp tiếp từng node dọc route (khoảng
-   4.5 m phía trước). Một node chỉ trống khi mọi node trong bán kính 1.3 m và mọi node bị cạnh đi quét qua đều không
+   7 m phía trước). Một node chỉ trống khi mọi node trong bán kính 1.3 m và mọi node bị cạnh đi quét qua đều không
    thuộc robot khác. **Giao lộ được cấp nguyên khối** gồm cả node ra khỏi giao lộ, nên không robot nào dừng giữa
    giao lộ.
-3. **Đồ thị chờ (wait-for)**: robot nào đang bị robot nào chặn.
+3. **Tránh nhau trên làn 2 chiều (không dừng, bám path)**: hai robot chạy ngược chiều trên cùng một làn 2 chiều
+   (Đường Bắc, Trục giữa, Ngõ) được ghép cặp từ ~16 m, nên quyền đi của chúng không chặn nhau và không robot nào
+   phải phanh. Khi còn cách nhau **8 m**, cả hai **lệch sang phải 0.7 m** ngay trên route của mình (waypoint dịch
+   ngang, giảm nhẹ còn 1.1 m/s, robot ưu tiên thấp 0.9 m/s), đi qua nhau cách ~1.4 m rồi trở về tâm làn và tăng tốc
+   lại. Node nào của làn 2 chiều đủ chỗ cho hai xe lệch (cách mọi vật ≥ 0.55 m) được tính sẵn khi dựng đồ thị.
+   Nhật ký: `amr_02 và amr_04 gặp nhau trên Duong Bac 2 chieu (cách 7.9 m): cùng lệch phải để tránh, không dừng`.
+4. **Đồ thị chờ (wait-for)** (dự phòng): robot nào đang bị robot nào chặn.
    * **Đối đầu / deadlock vòng** (A chờ B, B chờ A, hoặc vòng dài hơn): robot **ưu tiên thấp nhất** trong vòng né.
    * **Chặn ưu tiên**: robot ưu tiên cao bị một robot ưu tiên thấp đang đứng yên chặn quá 3 s thì robot thấp nhường.
-4. **Né đường**: tìm nơi tránh gần nhất (yield bay, ô đỗ trống hoặc làn khác) nằm **ngoài lộ trình sắp tới** của
+5. **Né đường** (dự phòng, khi kẹt thật sự): tìm nơi tránh gần nhất (yield bay, ô đỗ trống hoặc làn khác) nằm **ngoài lộ trình sắp tới** của
    robot ưu tiên cao, còn trống theo đúng luật cấp quyền. Robot thấp vào đó, chờ robot ưu tiên cao đi qua. Nếu
    không né được (hai bên đều kẹt), hai robot **đổi vai**: robot kia lùi vào chỗ tránh.
-5. **Bám lại route cũ**: từ chỗ tránh, chọn node trên **route ban đầu** sao cho (đường quay lại + phần route cũ còn
+6. **Bám lại route cũ**: từ chỗ tránh, chọn node trên **route ban đầu** sao cho (đường quay lại + phần route cũ còn
    lại) ngắn nhất, rồi tiếp tục đúng route và nhiệm vụ cũ, ví dụ log:
    `amr_05 bám lại route cũ tại north.16 → tiếp tục đi tới điểm lấy hàng`.
-6. **Đổi lộ trình**: robot bị kẹt quá 20 s được lập lại đường đi tránh vùng tắc. A* phạt các node đang có robot
+7. **Đổi lộ trình**: robot bị kẹt quá 20 s được lập lại đường đi tránh vùng tắc. A* phạt các node đang có robot
    đứng, nên robot chủ động đi vòng chỗ đông.
 
 ### Hàng ưu tiên theo task (`priority_mode: task`, mặc định)
@@ -225,6 +232,25 @@ source install/setup.bash
 `amr_gazebo` biên dịch system C++ `LineAnimator` (gz-sim 8); hook môi trường tự thêm
 `GZ_SIM_SYSTEM_PLUGIN_PATH` và `GZ_SIM_RESOURCE_PATH` khi `source install/setup.bash`.
 
+**Ubuntu 22.04 + ROS 2 Humble + Gazebo Harmonic** (không cần nâng lên 24.04): cài `gz-harmonic` từ
+packages.osrfoundation.org, build `ros_gz` nhánh `humble` với `GZ_VERSION=harmonic` (hoặc `ros-humble-ros-gzharmonic`),
+cài `ros-humble-opennav-docking ros-humble-opennav-docking-msgs` (hoặc build `opennav_docking` nhánh `humble` +
+`nav2_graceful_controller` từ source). `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi không có gói `*_vendor`,
+`navigation.launch.py` tự đổi tham số `collision_monitor` sang định dạng Nav2 1.1 khi `ROS_DISTRO=humble`
+(points dạng mảng phẳng, `max_points`, một `source_timeout` chung). Khác biệt còn lại trên Humble: không có
+EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
+`collision_monitor_state` (trường `obstacle_stop` trên dashboard luôn false).
+
+**Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Distribution/run_fleet.sh [số robot]`
+(mặc định 7, có cửa sổ Gazebo + RViz, tự dọn tiến trình cũ), tắt bằng `~/AMR-Fleet-Distribution/stop_fleet.sh`.
+`sim_env.bash` tách DDS của mô phỏng khỏi robot thật (CycloneDDS chỉ trên loopback, `ROS_DOMAIN_ID=42`). GUI Gazebo
+được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
+
+**Tay máy ở đầu dây chuyền** (system `amr_station_arms`): mỗi trạm `*_IN` / `*_OUT` có một tay máy 6 trục cạnh băng
+tải chuyển. Ở trạm IN tay máy hạ xuống giữ thùng trên AMR cho tới khi AMR dỡ xong rồi nhấc thùng đặt lên băng tải; ở
+trạm OUT tay máy gắp thùng trên băng tải đặt lên AMR và giữ cho tới khi AMR nhận xong (đồng bộ qua `/<amr>/cargo_lift`).
+Các khâu là model tĩnh chỉ có hình (một OBJ mỗi khâu), được đặt pose bằng động học ngược nên không tốn vật lý.
+
 **Gazebo Jetty**: các system dùng tên `gz-sim-*-system` và thẻ `gz_frame_id` giống Harmonic, nên chỉ cần build
 workspace trên bản ROS 2 đi kèm Jetty (`ros_gz`, `gz_sim_vendor` tương ứng). Không cần sửa mã.
 
@@ -253,8 +279,8 @@ Mở **http://localhost:8080** để xem dashboard.
 
 Làn 1 chiều và định tuyến tránh ùn tắc khiến đối đầu ít xảy ra (đó là mục tiêu của mạng lưới). Để xem tận mắt cơ
 chế né, bấm **"Demo né đường"** trên dashboard hoặc chạy `ros2 run amr_fleet_manager fleet_cli demo`. Hai robot
-rảnh được đưa ra hai đầu Đường Bắc (làn 2 chiều) rồi chạy ngược chiều cùng lúc. Robot ưu tiên thấp hơn tránh vào
-yield bay, chờ robot kia đi qua rồi **bám lại route cũ**. Mọi bước được ghi vào nhật ký với nhãn "Né đường".
+rảnh được đưa ra hai đầu Đường Bắc (làn 2 chiều) rồi chạy ngược chiều cùng lúc. Cách nhau 8 m thì cả hai lệch phải,
+đi qua nhau mà không dừng rồi về lại tâm làn, giữ nguyên route (nhãn "PASS" trong nhật ký).
 
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|

@@ -422,9 +422,25 @@ Ns 20
 d 1.0
 illum 2
 
+newmtl machine_orange
+Ka 0.950 0.520 0.100
+Kd 0.950 0.520 0.100
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
 newmtl robot_orange
 Ka 0.980 0.450 0.050
 Kd 0.980 0.450 0.050
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl copper
+Ka 0.800 0.450 0.200
+Kd 0.800 0.450 0.200
 Ks 0.150 0.150 0.150
 Ns 20
 d 1.0
@@ -441,14 +457,6 @@ illum 2
 newmtl bin_yellow
 Ka 0.950 0.750 0.100
 Kd 0.950 0.750 0.100
-Ks 0.150 0.150 0.150
-Ns 20
-d 1.0
-illum 2
-
-newmtl machine_orange
-Ka 0.950 0.520 0.100
-Kd 0.950 0.520 0.100
 Ks 0.150 0.150 0.150
 Ns 20
 d 1.0

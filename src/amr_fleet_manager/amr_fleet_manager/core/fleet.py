@@ -11,9 +11,14 @@ Robot life cycle::
                  TO_CHARGER -> CHARGING   (battery low / opportunistic)
                  WAIT_CHARGER (all 5 docks busy -> wait on a parking bay)
 
-    any moving state --(conflict with higher priority robot)--> YIELDING
-          (drive into a yield bay / off the other robot's path, wait until it
-           has passed, then rejoin the *original* route and resume)
+    Two robots meeting head-on on a two-way lane pass each other without
+    stopping: once they are `pass_detect` metres apart, both shift
+    `pass_offset` to their right along their own route, drive past and come
+    back to the lane centre (smooth, no yield bay).
+
+    any moving state --(deadlock / blocked by a stopped lower priority robot)
+          --> YIELDING (drive off the other robot's path, wait until it has
+          passed, then rejoin the *original* route and resume) - fallback only
 """
 
 from __future__ import annotations
@@ -85,7 +90,7 @@ class FleetParams:
     yield_timeout: float = 45.0
     yield_max_cost: float = 45.0
     status_timeout: float = 5.0
-    nominal_speed: float = 0.8
+    nominal_speed: float = 1.2
     turn_time_per_rad: float = 0.8
     priority_mode: str = 'task'        # task | dynamic | static
     w_task: float = 1000.0
@@ -95,7 +100,10 @@ class FleetParams:
     w_base: float = 15.0
     w_aging: float = 4.0
     aging_cap: float = 160.0
-    lookahead: float = 4.5
+    lookahead: float = 7.0
+    pass_detect: float = 8.0           # m: robots meeting head-on start shifting to their right
+    pass_after: float = 2.5            # m: stay shifted until this far past the other robot
+    pass_speed: float = 1.1            # m/s while shifted (lower priority robot: 0.8 of it)
     production: bool = True            # False: no MES tasks, only manual tasks / demos
 
 
@@ -129,9 +137,11 @@ class Command:
     final_yaw: float
     charge: bool
     carrying: bool = False
+    shape: tuple = ()            # route indices shifted for passing (re-send when it changes)
 
     def key(self) -> tuple:
-        return (self.command_id, self.mode, self.granted_index, self.charge, self.carrying)
+        return (self.command_id, self.mode, self.granted_index, self.charge, self.carrying,
+                self.shape)
 
 
 @dataclass
@@ -176,6 +186,7 @@ class RobotRecord:
     parking: Optional[str] = None
     opportunistic: bool = False
     yield_ctx: Optional[dict] = None
+    passing_with: Optional[str] = None
     # priority
     priority: float = 0.0
     priority_static: float = 0.0
@@ -220,6 +231,8 @@ class FleetCore:
         self._t0: Optional[float] = None
         self._last_assign = -math.inf
         self.yields = 0
+        self.passes = 0
+        self.passing: Dict[frozenset, dict] = {}
         self.deadlocks = 0
         self.reroutes = 0
         self.physical_conflicts = 0
@@ -330,6 +343,7 @@ class FleetCore:
             self._last_assign = now
             self._assign()
         self._priorities()
+        self._update_passing()
         self._run_traffic()
         if not self.paused:
             self._resolve_conflicts()
@@ -380,8 +394,8 @@ class FleetCore:
                 w = 25.0 if (stuck or parked) else 8.0
                 for c in self.g.conflicts[n]:
                     pen[c] = max(pen.get(c, 0.0), w)
-        for n, owner in self.traffic.owner.items():
-            if owner != r.id:
+        for n, owners in self.traffic.owners.items():
+            if owners - {r.id}:
                 pen[n] = max(pen.get(n, 0.0), 2.0)
         return pen
 
@@ -734,8 +748,8 @@ class FleetCore:
     # ============================================================== demo
     def start_demo_head_on(self, lane: str = 'north') -> Tuple[bool, str]:
         """Send two idle robots to both ends of a two-way lane, then let them
-        drive towards each other at the same time: the lower priority robot
-        must give way in a yield bay and rejoin its route afterwards."""
+        drive towards each other at the same time: they detect each other,
+        both shift to their right, pass and keep their route without stopping."""
         if self.demo is not None:
             return False, 'Kịch bản demo đang chạy'
         bays = sorted((i for i in self.g.yield_bays if self.g.nodes[i].id.startswith(f'Y.{lane}.')),
@@ -779,7 +793,7 @@ class FleetCore:
                     self._set_route(r, path, 1, DEMO, self.g.nodes[goal].heading or float('nan'))
             hi, lo = sorted(robots, key=lambda x: -x.priority_static)
             self.event(WARN, 'YIELD', '', f'Demo: {hi.id} (P{hi.rank}) và {lo.id} (P{lo.rank}) chạy '
-                                          f'ngược chiều trên cùng một làn → {lo.id} phải nhường')
+                                          f'ngược chiều trên cùng một làn → hai xe lệch phải tránh nhau, không dừng')
         elif d['phase'] == 'swap' and idle:
             self._end_demo('hoàn tất')
 
@@ -898,6 +912,138 @@ class FleetCore:
                     r.stall_since = self.now
             else:
                 r.stall_since = None
+
+    # ============================================================ passing
+    def _lane_tracks(self, r: RobotRecord) -> Dict[str, Tuple[int, float, float]]:
+        """Two-way lanes on the next metres of r's route: lane -> (direction along
+        the lane axis, axis coordinate of the robot, farthest coordinate reached)."""
+        g = self.g
+        out: Dict[str, Tuple[int, float, float]] = {}
+        if not r.route:
+            return out
+        k = min(max(r.progress, 0), len(r.route) - 1)
+        dist = math.dist((r.x, r.y), g.nodes[r.route[k]].xy)
+        for i in range(k, len(r.route) - 1):
+            u, v = r.route[i], r.route[i + 1]
+            if dist > 2.0 * self.p.lookahead + 8.0:
+                break
+            dist += g.distance(u, v)
+            lane = g.pass_lane.get(u)
+            if lane is None or g.pass_lane.get(v) != lane:
+                continue
+            ax, ay = g.pass_axis[u]
+            nu, nv = g.nodes[u], g.nodes[v]
+            d = 1 if (nv.x - nu.x) * ax + (nv.y - nu.y) * ay > 0 else -1
+            far = nv.x * ax + nv.y * ay
+            if lane in out:
+                if out[lane][0] != d:
+                    continue          # the route turns back on this lane: keep the first stretch
+                out[lane] = (d, out[lane][1], far)
+            else:
+                out[lane] = (d, r.x * ax + r.y * ay, far)
+        return out
+
+    def _update_passing(self) -> None:
+        """Pair the robots that meet head-on on a two-way lane: they pass each
+        other, both shifted to their right, instead of stopping and yielding."""
+        p = self.p
+        live = [r for r in self.robots.values()
+                if r.online and r.route and not r.paused and r.state not in WORK_STATES]
+        tracks = {r.id: self._lane_tracks(r) for r in live}
+        old = getattr(self, 'passing', {})
+        new: Dict[frozenset, dict] = {}
+        for i, a in enumerate(live):
+            for b in live[i + 1:]:
+                ta, tb = tracks[a.id], tracks[b.id]
+                for lane in ta.keys() & tb.keys():
+                    da, sa, fa = ta[lane]
+                    db, sb, fb = tb[lane]
+                    if da != -db:
+                        continue
+                    gap = (sb - sa) * da              # b ahead of a, along a's direction
+                    key = frozenset((a.id, b.id))
+                    meet = (fa - sa) * da + (fb - sb) * db >= gap - 0.5
+                    prev = old.get(key)
+                    if gap < -p.pass_after or not meet or (prev is None and gap < 0.5):
+                        continue          # passed each other (a new pair must still meet)
+                    # paired early enough that their traffic grants never collide
+                    # (no braking); the visible shift only starts at pass_detect
+                    pair_range = 2.0 * p.lookahead + 2.0
+                    if gap > pair_range + (2.0 if prev else 0.0):
+                        continue
+                    if gap < 3.5 and not (self._shifting(a, lane) and self._shifting(b, lane)):
+                        continue          # one of them stands still on the lane centre
+                    shift = gap <= p.pass_detect or bool(prev and prev['shift'])
+                    new[key] = {'lane': lane, 'shift': shift,
+                                'since': prev['since'] if prev else self.now}
+                    if shift and not (prev and prev['shift']):
+                        self.passes += 1
+                        name = self.g.lane_names.get(lane, lane)
+                        self.event(INFO, 'PASS', a.id,
+                                   f'{a.id} và {b.id} gặp nhau trên {name} (cách {gap:.1f} m): '
+                                   f'cùng lệch phải để tránh, không dừng, giữ route')
+                    break
+        self.passing = new
+        for r in self.robots.values():
+            r.passing_with = None
+        for key, info in new.items():
+            if not info['shift']:
+                continue
+            x, y = sorted(key)
+            self.robots[x].passing_with = y
+            self.robots[y].passing_with = x
+        self.traffic.passing = set(new)
+
+    def _shifting(self, r: RobotRecord, lane: str) -> bool:
+        """r moves, or already stands shifted off the centre line of lane."""
+        if abs(r.v) > 0.05:
+            return True
+        n = self.g.nearest_node(r.x, r.y)
+        if self.g.pass_lane.get(n) != lane:
+            return True
+        ax, ay = self.g.pass_axis[n]
+        node = self.g.nodes[n]
+        return abs((r.x - node.x) * ay - (r.y - node.y) * ax) > 0.3
+
+    def _pass_shape(self, r: RobotRecord) -> Tuple[List[Tuple[float, float]], List[float], tuple]:
+        """Waypoints of r shifted to its right where it passes another robot,
+        the matching speed limits and a signature of the shift."""
+        g, p = self.g, self.p
+        pts = [g.nodes[n].xy for n in r.route]
+        limits = self._speed_limits(r.route)
+        if r.passing_with is None:
+            return pts, limits, ()
+        o = self.robots[r.passing_with]
+        info = self.passing.get(frozenset((r.id, o.id)))
+        if info is None or not info['shift']:
+            return pts, limits, ()
+        lane = info['lane']
+        k = min(max(r.progress, 0), len(r.route) - 1)
+        speed = p.pass_speed * (0.8 if r.priority_static < o.priority_static else 1.0)
+        sig = []
+        for i in range(max(k, 1), len(r.route) - 1):
+            n = r.route[i]
+            if g.pass_lane.get(n) != lane:
+                if sig:
+                    break
+                continue
+            prv, nxt = g.nodes[r.route[i - 1]], g.nodes[r.route[i + 1]]
+            ax, ay = g.pass_axis[n]
+            d = 1 if (nxt.x - prv.x) * ax + (nxt.y - prv.y) * ay > 0 else -1
+            node = g.nodes[n]
+            s_n = node.x * ax + node.y * ay
+            if (s_n - (r.x * ax + r.y * ay)) * d < -0.5:
+                continue                                  # already behind the robot
+            if (s_n - (o.x * ax + o.y * ay)) * d > p.pass_after:
+                break                                     # past the other robot: back to the centre
+            tx, ty = d * ax, d * ay
+            off = g.pass_offset
+            pts[i] = (node.x + off * ty, node.y - off * tx)
+            limits[i] = min(limits[i], speed)
+            if i + 1 < len(limits):
+                limits[i + 1] = min(limits[i + 1], speed)
+            sig.append(i)
+        return pts, limits, tuple(sig)
 
     def _stalled_for(self, r: RobotRecord) -> float:
         return r.waiting(self.now)
@@ -1241,7 +1387,7 @@ class FleetCore:
             if e is not None:
                 out.append(e.speed)
             else:
-                out.append(0.45 if not self.g.nodes[n].transit else 1.0)
+                out.append(self.g.lane_speed if self.g.nodes[n].transit else self.g.bay_speed)
         return out
 
     def _commands(self) -> Dict[str, Command]:
@@ -1252,12 +1398,11 @@ class FleetCore:
                                      r.state == CHARGING, bool(r.cargo))
                 continue
             mode = 2 if (self.paused or r.paused) else 1
+            pts, limits, shape = self._pass_shape(r)
             cmds[r.id] = Command(
                 r.id, r.command_id, mode,
                 [self.g.nodes[n].id for n in r.route],
-                [self.g.nodes[n].xy for n in r.route],
-                self._speed_limits(r.route),
-                r.granted, r.final_yaw, False, bool(r.cargo))
+                pts, limits, r.granted, r.final_yaw, False, bool(r.cargo), shape)
         return cmds
 
     # ================================================================ ETA
@@ -1328,6 +1473,8 @@ class FleetCore:
                 txt = f'Đang trả hàng tại {r.task.dropoff} ({max(r.work_until - self.now, 0):.0f}s)'
         elif r.state == CHARGING:
             txt = f'Đang sạc tại {r.dock} ({r.battery:.0f}%)'
+        if r.passing_with:
+            txt += f' | tránh {r.passing_with} (lệch phải, không dừng)'
         if r.stall_since is not None and r.blocked_by:
             node = self.g.nodes[r.blocked_node].id if r.blocked_node is not None else ''
             txt += f' | chờ {r.blocked_by} nhường {node} ({self.now - r.stall_since:.0f}s)'
@@ -1402,6 +1549,6 @@ class FleetCore:
             'charger_occupants': [o or '' for o in self.dock_booking.values()],
             'charger_queue': list(self.charge_queue),
             'tasks_completed': self.tasks.completed,
-            'yield_maneuvers': self.yields, 'deadlocks_resolved': self.deadlocks,
+            'yield_maneuvers': self.yields, 'pass_maneuvers': self.passes, 'deadlocks_resolved': self.deadlocks,
             'reroutes': self.reroutes,
         }

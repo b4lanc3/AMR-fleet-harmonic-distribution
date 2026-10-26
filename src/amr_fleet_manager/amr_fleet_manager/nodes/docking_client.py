@@ -16,7 +16,10 @@ import math
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import DockRobot, UndockRobot
+try:
+    from nav2_msgs.action import DockRobot, UndockRobot
+except ImportError:       # Humble: docking actions of the opennav_docking backport
+    from opennav_docking_msgs.action import DockRobot, UndockRobot
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSProfile

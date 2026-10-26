@@ -19,7 +19,7 @@
   ros__parameters:
     control_rate: 20.0
     status_rate: 10.0
-    max_speed: 1.0             # m/s
+    max_speed: 1.5             # m/s
     safety_stop_distance: 0.30 # lidar protective field [m]
     safety_slow_distance: 0.85 # lidar warning field [m]
     safety_half_angle_deg: 35.0

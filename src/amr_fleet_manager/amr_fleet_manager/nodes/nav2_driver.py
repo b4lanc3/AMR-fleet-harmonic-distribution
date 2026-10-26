@@ -60,6 +60,8 @@ def _inverse(a):
 class Nav2Driver:
     PATH_STEP = 0.10          # m between poses of the path sent to the controller
     RESEND_PERIOD = 0.35      # s, min time between two goals
+    SOFT_DECEL = 0.6          # m/s^2: early, gentle braking towards the end of the granted segment
+    STOP_MARGIN = 0.25        # m before the granted end
     YAW_TOL = 0.12
     ARRIVE_TOL = 0.20         # m: end of the route reached (Nav2 keeps approaching to 0.10)
     MAX_STAMP_GAP_NS = 100_000_000   # amcl_pose vs odometry sample used for map -> odom
@@ -146,7 +148,7 @@ class Nav2Driver:
                 d_end < self.ARRIVE_TOL or
                 (self.goal_ok_key == (s.command_id, last) and d_end < 0.30)):
             s.reached = last          # at the station / dock (AMCL accuracy)
-        self._limit_speed(s)
+        self._limit_speed(s, x, y)
         if s.reached >= last:
             yaw_ok = math.isnan(s.final_yaw) or abs(wrap(s.final_yaw - yaw)) < self.YAW_TOL
             if yaw_ok and (self.goal_done or abs(speed) < 0.03 or d_end < 0.08):
@@ -160,7 +162,7 @@ class Nav2Driver:
             if not self.goal_done and abs(speed) < 0.02:
                 self.cancel()
             return
-        key = (s.command_id, s.granted)
+        key = (s.command_id, s.granted, s.rev)
         stalled_goal = self.goal_done and now - self.last_done > 1.0
         if key == self.goal_key and not stalled_goal:
             return
@@ -224,10 +226,18 @@ class Nav2Driver:
         if k > s.reached:
             s.reached = k
 
-    def _limit_speed(self, s) -> None:
-        i = min(s.reached + 1, len(s.waypoints) - 1)
+    def _limit_speed(self, s, x: float, y: float) -> None:
+        last = len(s.waypoints) - 1
+        i = min(s.reached + 1, last)
         lim = s.speed_limits[i] if 0 <= i < len(s.speed_limits) else self.f.p.max_speed
         lim = float(min(lim, self.f.p.max_speed))
+        if s.granted < last and s.reached < s.granted:
+            # the traffic grant ends before the route: slow down early and
+            # gently (instead of full speed then a hard stop) - most of the time
+            # the grant is extended before the robot gets there and it never stops
+            d_rem = math.dist((x, y), s.waypoints[i]) + s.cum[s.granted] - s.cum[i]
+            v = math.sqrt(2.0 * self.SOFT_DECEL * max(0.0, d_rem - self.STOP_MARGIN))
+            lim = min(lim, max(0.15, round(v / 0.05) * 0.05))
         if abs(lim - self.speed_limit) > 1e-3:
             self.speed_limit = lim
             msg = SpeedLimit()

@@ -14,22 +14,27 @@ Every control cycle:
    footprint) and no node swept by the edge leading to it is owned by
    somebody else.
 3. The first owner that stops a robot is recorded as `blocked_by`; this
-   builds the wait-for graph used by the fleet manager to resolve head-on
-   conflicts, overtaking and deadlocks (lower priority robot yields).
+   builds the wait-for graph used by the fleet manager to resolve
+   overtaking and deadlocks (lower priority robot yields).
+
+Passing: two robots that the fleet manager has paired for passing (`passing`,
+they meet head-on on a two-way lane and both shift to their right) do not
+conflict on the graph's passing nodes - they may own the same lane nodes at
+the same time and drive past each other without stopping.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Set
+from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Set
 
 from .graph import TrafficGraph
 
 
 @dataclass
 class TrafficParams:
-    lookahead: float = 4.5        # metres granted ahead of the robot
+    lookahead: float = 7.0        # metres granted ahead of the robot
     min_nodes: int = 2            # always try to grant at least this many nodes ahead
     decel: float = 0.9
     brake_margin: float = 0.35
@@ -64,7 +69,9 @@ class TrafficController:
     def __init__(self, graph: TrafficGraph, params: Optional[TrafficParams] = None) -> None:
         self.g = graph
         self.p = params or TrafficParams()
-        self.owner: Dict[int, str] = {}
+        self.owner: Dict[int, str] = {}             # first owner of every claimed node
+        self.owners: Dict[int, Set[str]] = {}       # all owners (passing robots share nodes)
+        self.passing: Set[FrozenSet[str]] = set()   # robot pairs passing each other
         self.physical_conflicts: List[tuple] = []
 
     # ---------------------------------------------------------- held nodes
@@ -107,16 +114,22 @@ class TrafficController:
     def free_for(self, robot_id: str, nodes: Iterable[int]) -> Optional[Set[str]]:
         """Return None if all nodes are free for robot_id, else the owners."""
         owners: Set[str] = set()
+        pass_nodes = self.g.pass_nodes
         for n in nodes:
             for c in self.g.conflicts[n]:
-                o = self.owner.get(c)
-                if o is not None and o != robot_id:
+                for o in self.owners.get(c, ()):
+                    if o == robot_id or o in owners:
+                        continue
+                    if n in pass_nodes and c in pass_nodes and \
+                            frozenset((robot_id, o)) in self.passing:
+                        continue
                     owners.add(o)
         return owners or None
 
     def _claim(self, robot_id: str, nodes: Iterable[int]) -> None:
         for n in nodes:
-            self.owner[n] = robot_id
+            self.owner.setdefault(n, robot_id)
+            self.owners.setdefault(n, set()).add(robot_id)
 
     def _edge_nodes(self, route: Sequence[int], i: int, j: int) -> Set[int]:
         out: Set[int] = set()
@@ -127,6 +140,7 @@ class TrafficController:
     def compute(self, agents: Sequence[TrafficAgent]) -> None:
         g, p = self.g, self.p
         self.owner = {}
+        self.owners = {}
         self.physical_conflicts = []
         for a in agents:
             self._held(a)
@@ -169,9 +183,9 @@ class TrafficController:
                     # the owner of the first blocked node is the main blocker
                     first = None
                     for c in g.conflicts[route[i + 1]]:
-                        o = self.owner.get(c)
-                        if o is not None and o != a.id:
-                            first = o
+                        hit = sorted(o for o in self.owners.get(c, ()) if o in owners)
+                        if hit:
+                            first = hit[0]
                             break
                     a.blocked_by = first or sorted(owners)[0]
                     break
@@ -183,7 +197,7 @@ class TrafficController:
 
     # ------------------------------------------------------------- helpers
     def nodes_owned_by_others(self, robot_id: str) -> Set[int]:
-        return {n for n, o in self.owner.items() if o != robot_id}
+        return {n for n, os in self.owners.items() if os - {robot_id}}
 
     def closure(self, nodes: Iterable[int]) -> Set[int]:
         out: Set[int] = set()

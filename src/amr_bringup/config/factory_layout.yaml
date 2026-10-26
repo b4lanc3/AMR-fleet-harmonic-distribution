@@ -28,8 +28,10 @@ traffic:
   dock_offset: 2.5           # lateral offset of charger docks / parking bays
   conflict_radius: 1.3       # two nodes closer than this can't be held by different robots
   sweep_radius: 1.1          # a node this close to an edge blocks traversal of that edge
-  lane_speed: 1.0            # m/s on lanes
-  bay_speed: 0.45            # m/s inside lay-bys, docks, bays
+  lane_speed: 1.5            # m/s on lanes
+  bay_speed: 0.65            # m/s inside lay-bys, docks, bays
+  pass_offset: 0.7           # two-way lanes: robots meeting head-on both shift this far to their right
+  pass_clearance: 0.55       # free space required around a shifted robot centre
   two_way_cost_factor: 1.10  # planner penalty for single two-way lanes
   yield_bay_spacing: 14.0    # automatic yield bays every N metres (dual lanes)
   yield_bay_clearance: 0.75  # obstacle clearance required around a yield bay

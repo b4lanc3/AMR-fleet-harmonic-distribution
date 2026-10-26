@@ -87,6 +87,14 @@ class TrafficGraph:
         self.conflicts: List[Set[int]] = []
         self.sweeps: Dict[Tuple[int, int], Set[int]] = {}
         self.two_way_cost_factor = 1.0
+        # two-way lane nodes where opposite robots pass each other shifted to
+        # their right (layout.mark_passing_nodes)
+        self.pass_nodes: Set[int] = set()
+        self.pass_lane: Dict[int, str] = {}
+        self.pass_axis: Dict[int, Tuple[float, float]] = {}
+        self.pass_offset = 0.7
+        self.lane_speed = 1.0
+        self.bay_speed = 0.45
         self._cost_to_cache: Dict[int, Dict[int, float]] = {}
         self._xy: Optional[np.ndarray] = None
 

@@ -111,15 +111,24 @@ def launch_setup(context, *args, **kwargs):
                             people=lc('people').lower() == 'true')
     wheel_odom = lc('odom') == 'wheel'
 
-    gz_args = f'-r -v {lc("gz_verbosity")} {world}'
-    if lc('gui').lower() != 'true':
-        gz_args = '-s ' + gz_args
-        if lc('headless_rendering').lower() == 'true':
-            gz_args = '--headless-rendering ' + gz_args
+    # server only: a GUI started together with the server is still loading the
+    # large factory scene while the robots are spawned and misses most of them
+    # (only one AMR rendered); the GUI client joins after the last spawn and
+    # receives the complete scene
+    gui = lc('gui').lower() == 'true'
+    gz_args = f'-s -r -v {lc("gz_verbosity")} {world}'
+    if not gui and lc('headless_rendering').lower() == 'true':
+        gz_args = '--headless-rendering ' + gz_args
+    gz_launch = os.path.join(get_package_share_directory('ros_gz_sim'), 'launch',
+                             'gz_sim.launch.py')
     actions = [IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(
-            get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')),
+        PythonLaunchDescriptionSource(gz_launch),
         launch_arguments={'gz_args': gz_args, 'on_exit_shutdown': 'true'}.items())]
+    if gui:
+        actions.append(TimerAction(
+            period=3.0 + float(lc('spawn_delay')) * n + 4.0, actions=[IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(gz_launch),
+                launch_arguments={'gz_args': f'-g -v {lc("gz_verbosity")}'}.items())]))
 
     cameras = lc('bridge_cameras')
     bridge_file = os.path.join(tmp, 'bridge.yaml')

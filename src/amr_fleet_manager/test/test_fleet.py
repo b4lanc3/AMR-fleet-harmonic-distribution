@@ -26,8 +26,10 @@ def _status(fleet, rid, x, y, yaw=0.0, t=0.0):
                                       r.progress, False, 90.0, False, False, 9.9, t))
 
 
-def test_head_on_lower_priority_robot_yields_and_rejoins(layout, graph):
-    """Two robots meet head-on on the two-way north aisle."""
+def test_head_on_robots_pass_each_other_without_stopping(layout, graph):
+    """Two robots meet head-on on the two-way north aisle: they detect each
+    other, both shift to their right, pass and keep their route - nobody stops
+    or drives into a yield bay."""
     sim = HeadlessSim(layout, 2)
     fleet = sim.fleet
     g = sim.graph
@@ -41,7 +43,6 @@ def test_head_on_lower_priority_robot_yields_and_rejoins(layout, graph):
     fleet.production.packers.clear()
     sim.step()
     ra, rb = fleet.robots['amr_01'], fleet.robots['amr_02']
-    # amr_01 has the better base rank -> amr_02 must give way
     goal_a = g.parking['P19']                 # far east
     goal_b = g.parking['P01']                 # far west
     fleet._release_parking(ra)
@@ -55,18 +56,28 @@ def test_head_on_lower_priority_robot_yields_and_rejoins(layout, graph):
     fleet._set_route(rb, route_b, 1, 'TO_PARK', float('nan'))
     ra.parking, rb.parking = 'P19', 'P01'
     fleet.parking_booking['P19'], fleet.parking_booking['P01'] = 'amr_01', 'amr_02'
-    yielded = False
+    yielded = stalled = False
+    closest = math.inf
+    passing_speed = math.inf
     for _ in range(int(240 / sim.dt)):
         sim.step()
-        if rb.state == YIELDING:
-            yielded = True
+        yielded |= YIELDING in (ra.state, rb.state)
+        stalled |= ra.stall_since is not None or rb.stall_since is not None
+        d = math.hypot(a.x - b.x, a.y - b.y)
+        closest = min(closest, d)
+        if d < 4.0:
+            passing_speed = min(passing_speed, abs(a.v), abs(b.v))
         if not ra.route and not rb.route and ra.state == 'PARKED' and rb.state == 'PARKED':
             break
-    assert yielded, 'lower priority robot never yielded'
     assert ra.current_node == goal_a and rb.current_node == goal_b
+    assert not yielded, 'a robot drove into a yield bay'
+    assert not stalled, 'a robot stopped for the other one'
+    assert fleet.passes >= 1
+    assert passing_speed > 0.3, f'robots slowed down to {passing_speed:.2f} m/s while passing'
+    assert closest > 1.0, f'robots passed {closest:.2f} m apart'
     assert sim.metrics.collisions == 0
     texts = ' '.join(e['text'] for e in fleet.events)
-    assert 'bám lại route cũ' in texts
+    assert 'lệch phải' in texts
 
 
 def test_demo_head_on_scenario(layout):
@@ -78,7 +89,8 @@ def test_demo_head_on_scenario(layout):
     assert ok, msg
     sim.run(sim.t + 420)
     assert sim.fleet.demo is None, 'demo did not finish'
-    assert sim.fleet.yields >= 1
+    assert sim.fleet.passes >= 1
+    assert sim.fleet.yields == 0
     assert sim.metrics.collisions == 0
     texts = ' '.join(e['text'] for e in sim.fleet.events)
-    assert 'bám lại route cũ' in texts and 'Demo đối đầu hoàn tất' in texts
+    assert 'lệch phải' in texts and 'Demo đối đầu hoàn tất' in texts

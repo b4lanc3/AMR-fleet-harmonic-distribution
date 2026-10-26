@@ -9,11 +9,12 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>gz_sim_vendor</depend>
-  <depend>gz_plugin_vendor</depend>
-  <depend>gz_transport_vendor</depend>
-  <depend>gz_msgs_vendor</depend>
-  <depend>sdformat_vendor</depend>
+  <!-- Humble: Gazebo Harmonic system libraries (gz-harmonic), no vendor packages -->
+  <depend condition="$ROS_DISTRO != humble">gz_sim_vendor</depend>
+  <depend condition="$ROS_DISTRO != humble">gz_plugin_vendor</depend>
+  <depend condition="$ROS_DISTRO != humble">gz_transport_vendor</depend>
+  <depend condition="$ROS_DISTRO != humble">gz_msgs_vendor</depend>
+  <depend condition="$ROS_DISTRO != humble">sdformat_vendor</depend>
 
   <exec_depend>amr_description</exec_depend>
   <exec_depend>amr_fleet_manager</exec_depend>

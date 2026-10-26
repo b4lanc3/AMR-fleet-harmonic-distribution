@@ -64,7 +64,7 @@ class RobotAgent(Node):
         self.declare_parameter('battery_idle_drain', 0.004)
         self.declare_parameter('battery_move_drain', 0.030)
         self.declare_parameter('battery_charge_rate', 0.25)
-        self.declare_parameter('max_speed', 1.0)
+        self.declare_parameter('max_speed', 1.5)
         self.declare_parameter('safety_stop_distance', 0.30)
         self.declare_parameter('safety_slow_distance', 0.85)
         self.declare_parameter('safety_half_angle_deg', 35.0)

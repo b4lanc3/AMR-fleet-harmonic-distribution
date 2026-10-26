@@ -20,7 +20,10 @@ Every control cycle:
 Passing: two robots that the fleet manager has paired for passing (`passing`,
 they meet head-on on a two-way lane and both shift to their right) do not
 conflict on the graph's passing nodes - they may own the same lane nodes at
-the same time and drive past each other without stopping.
+the same time and drive past each other without stopping.  While a pair is
+only *announced* (not shifted yet) a robot may share the other's granted
+nodes but never its held ones (where it physically stands / can't stop
+before): if the pair breaks up, there is still room to brake.
 """
 
 from __future__ import annotations
@@ -36,8 +39,8 @@ from .graph import TrafficGraph
 class TrafficParams:
     lookahead: float = 7.0        # metres granted ahead of the robot
     min_nodes: int = 2            # always try to grant at least this many nodes ahead
-    decel: float = 0.9
-    brake_margin: float = 0.35
+    decel: float = 0.6            # comfortable braking: nodes closer than that are held
+    brake_margin: float = 0.5
     leave_tol: float = 0.25       # robot has left its node when farther than this
 
 
@@ -71,7 +74,8 @@ class TrafficController:
         self.p = params or TrafficParams()
         self.owner: Dict[int, str] = {}             # first owner of every claimed node
         self.owners: Dict[int, Set[str]] = {}       # all owners (passing robots share nodes)
-        self.passing: Set[FrozenSet[str]] = set()   # robot pairs passing each other
+        self.passing: Dict[FrozenSet[str], bool] = {}   # pairs passing each other -> shifted
+        self.held_by: Dict[int, Set[str]] = {}          # hard locks
         self.physical_conflicts: List[tuple] = []
 
     # ---------------------------------------------------------- held nodes
@@ -120,9 +124,10 @@ class TrafficController:
                 for o in self.owners.get(c, ()):
                     if o == robot_id or o in owners:
                         continue
-                    if n in pass_nodes and c in pass_nodes and \
-                            frozenset((robot_id, o)) in self.passing:
-                        continue
+                    if n in pass_nodes and c in pass_nodes:
+                        shifted = self.passing.get(frozenset((robot_id, o)))
+                        if shifted or (shifted is not None and o not in self.held_by.get(c, ())):
+                            continue
                     owners.add(o)
         return owners or None
 
@@ -141,6 +146,7 @@ class TrafficController:
         g, p = self.g, self.p
         self.owner = {}
         self.owners = {}
+        self.held_by = {}
         self.physical_conflicts = []
         for a in agents:
             self._held(a)
@@ -156,6 +162,8 @@ class TrafficController:
             if clash:
                 self.physical_conflicts.append((a.id, tuple(sorted(clash))))
             self._claim(a.id, nodes)
+            for n in nodes:
+                self.held_by.setdefault(n, set()).add(a.id)
 
         for a in sorted(agents, key=lambda r: -r.priority):
             if not a.route:

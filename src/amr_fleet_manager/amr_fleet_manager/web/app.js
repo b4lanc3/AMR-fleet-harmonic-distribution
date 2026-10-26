@@ -149,7 +149,8 @@ function renderKpis() {
     ['Task hoàn thành', s.tasks_completed, `${queued} task chờ robot`],
     ['Thành phẩm nhập kho', p.finished_stored ?? 0, `${p.products_made ?? 0} SP đã sản xuất`],
     ['Thông lượng', `${Math.round(p.throughput_per_hour ?? 0)}`, 'thành phẩm / giờ'],
-    ['Lượt né đường', s.yield_maneuvers, `${s.deadlocks_resolved} đối đầu / deadlock đã gỡ`],
+    ['Tránh nhau (không dừng)', s.pass_maneuvers ?? 0,
+     `${s.unplanned_stops ?? 0} lần dừng giữa đường (${((s.unplanned_stops ?? 0) / Math.max(s.fleet_km ?? 0, 0.05)).toFixed(1)}/km) · ${s.yield_maneuvers} lần nhường`],
     ['Trạm sạc', `${inUse}/${s.charger_ids.length}`, `${s.charger_queue.length} robot chờ sạc`],
   ];
   $('#kpis').innerHTML = tiles.map(([l, v, f]) =>

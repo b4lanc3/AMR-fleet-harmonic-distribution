@@ -60,6 +60,44 @@ class Metrics:
     min_battery: float = 100.0
     throughput_per_hour: float = 0.0
     collision_pairs: List[str] = field(default_factory=list)
+    # smoothness (robots with a route only)
+    distance_km: float = 0.0
+    route_time: float = 0.0            # robot-seconds with a route
+    unplanned_stops: int = 0           # stopped before the end of the route
+    blocked_time: float = 0.0          # robot-seconds standing still before the route end
+    hard_brakes: int = 0               # braking > HARD_BRAKE m/s^2 that loses >= 0.3 m/s
+    acc_sq: float = 0.0
+    jerk_sq: float = 0.0
+    passes: int = 0
+    line_utilization: float = 0.0      # mean busy share of the production lines
+    packer_utilization: float = 0.0
+
+    @property
+    def stops_per_km(self) -> float:
+        return self.unplanned_stops / self.distance_km if self.distance_km > 1e-3 else 0.0
+
+    @property
+    def avg_speed(self) -> float:
+        return self.distance_km * 1000.0 / self.route_time if self.route_time > 0 else 0.0
+
+    @property
+    def rms_accel(self) -> float:
+        return math.sqrt(self.acc_sq / self.route_time) if self.route_time > 0 else 0.0
+
+    @property
+    def rms_jerk(self) -> float:
+        return math.sqrt(self.jerk_sq / self.route_time) if self.route_time > 0 else 0.0
+
+    @property
+    def blocked_share(self) -> float:
+        return self.blocked_time / self.route_time if self.route_time > 0 else 0.0
+
+    def smoothness(self) -> str:
+        return (f'smooth | {self.distance_km:.2f} km | avg {self.avg_speed:.2f} m/s '
+                f'| stops {self.unplanned_stops} ({self.stops_per_km:.1f}/km) '
+                f'| blocked {100 * self.blocked_share:.1f}% | hard brakes {self.hard_brakes} '
+                f'| rms acc {self.rms_accel:.2f} jerk {self.rms_jerk:.2f} | passes {self.passes} '
+                f'| lines {100 * self.line_utilization:.0f}% packers {100 * self.packer_utilization:.0f}%')
 
     def report(self) -> str:
         return (f'sim {self.sim_time / 60:.1f} min in {self.wall_time:.1f}s | tasks {self.tasks_completed} '
@@ -70,6 +108,10 @@ class Metrics:
                 f'| max stall {self.max_stall:.0f}s ({self.max_stall_robot}) '
                 f'| lidar stops {self.obstacle_stops} | charges {self.charges} '
                 f'| min batt {self.min_battery:.0f}%')
+
+
+HARD_BRAKE = 1.2      # m/s^2
+MOVING, STOPPED = 0.3, 0.05
 
 
 class HeadlessSim:
@@ -94,6 +136,10 @@ class HeadlessSim:
         self._progress_time: Dict[str, float] = {}
         self._was_charging: Dict[str, bool] = {}
         self._colliding: set = set()
+        self._v: Dict[str, float] = {}
+        self._a: Dict[str, float] = {}
+        self._moving: Dict[str, bool] = {}
+        self._braking: Dict[str, float] = {}     # speed lost in the current hard braking
 
     def step(self) -> None:
         dt = self.dt
@@ -121,6 +167,40 @@ class HeadlessSim:
         self.world.step(dt, charge)
         self.t += dt
         self._check_safety()
+        self._check_smoothness()
+
+    def _check_smoothness(self) -> None:
+        m, dt = self.metrics, self.dt
+        for rid in self.ids:
+            r = self.world.robots[rid]
+            rec = self.fleet.robots[rid]
+            f = self.followers[rid]
+            v = abs(r.v)
+            a = (v - self._v.get(rid, v)) / dt
+            jerk = (a - self._a.get(rid, a)) / dt
+            self._v[rid], self._a[rid] = v, a
+            m.distance_km += v * dt / 1000.0
+            if not rec.route or f.route_complete:
+                self._moving[rid] = False
+                continue
+            m.route_time += dt
+            m.acc_sq += a * a * dt
+            m.jerk_sq += jerk * jerk * dt
+            if a < -HARD_BRAKE:
+                lost = self._braking.get(rid, 0.0)
+                if lost < 0.3 <= lost - a * dt:
+                    m.hard_brakes += 1
+                self._braking[rid] = lost - a * dt
+            else:
+                self._braking[rid] = 0.0
+            at_end = f.s.reached >= len(f.s.waypoints) - 1
+            if v < STOPPED and not at_end:
+                m.blocked_time += dt
+                if self._moving.get(rid):
+                    m.unplanned_stops += 1
+                self._moving[rid] = False
+            elif v > MOVING:
+                self._moving[rid] = True
 
     def _check_safety(self) -> None:
         m = self.metrics
@@ -162,6 +242,7 @@ class HeadlessSim:
                 next_report += report_every
                 self._fill_metrics(time.time() - wall0)
                 print(self.metrics.report(), flush=True)
+                print('   ', self.metrics.smoothness(), flush=True)
         self._fill_metrics(time.time() - wall0)
         return self.metrics
 
@@ -176,6 +257,23 @@ class HeadlessSim:
         m.deadlocks = self.fleet.deadlocks
         m.reroutes = self.fleet.reroutes
         m.throughput_per_hour = self.fleet.production.throughput_per_hour()
+        m.passes = self.fleet.passes
+        snap = self.fleet.production.snapshot()
+        lines = [x['utilization'] for x in snap.get('lines', []) if x.get('line_type') == 'production']
+        packs = [x['utilization'] for x in snap.get('lines', []) if x.get('line_type') == 'packaging']
+        m.line_utilization = sum(lines) / len(lines) if lines else 0.0
+        m.packer_utilization = sum(packs) / len(packs) if packs else 0.0
+
+
+def default_layout_path() -> str:
+    import os
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return os.path.join(get_package_share_directory('amr_bringup'), 'config',
+                            'factory_layout.yaml')
+    except Exception:  # pragma: no cover - fallback for source checkouts
+        return os.path.join(os.path.dirname(__file__), '..', '..', '..', 'amr_bringup',
+                            'config', 'factory_layout.yaml')
 
 
 def main(argv=None) -> None:
@@ -185,17 +283,7 @@ def main(argv=None) -> None:
     ap.add_argument('--minutes', type=float, default=20.0)
     ap.add_argument('--events', action='store_true', help='print fleet events')
     args = ap.parse_args(argv)
-    path = args.layout
-    if path is None:
-        try:
-            from ament_index_python.packages import get_package_share_directory
-            import os
-            path = os.path.join(get_package_share_directory('amr_bringup'), 'config',
-                                'factory_layout.yaml')
-        except Exception:  # pragma: no cover - fallback for source checkouts
-            import os
-            path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'amr_bringup',
-                                'config', 'factory_layout.yaml')
+    path = args.layout or default_layout_path()
     sim = HeadlessSim(load_layout(path), args.robots)
     seen = 0
     if args.events:
@@ -210,6 +298,7 @@ def main(argv=None) -> None:
     else:
         m = sim.run(args.minutes * 60, verbose=True)
         print(m.report())
+        print(m.smoothness())
 
 
 if __name__ == '__main__':

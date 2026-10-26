@@ -9,7 +9,8 @@
     amcl               localisation on /map, publishes map -> <id>/odom
     controller_server  Regulated Pure Pursuit + local costmap (2D lidar + RGB-D
                        point cloud), FollowPath action, cmd_vel -> cmd_vel_nav
-    collision_monitor  lidar + RGB-D stop / slow-down zones, cmd_vel_nav -> cmd_vel
+    velocity_smoother  acceleration / deceleration limits, cmd_vel_nav -> cmd_vel_smooth
+    collision_monitor  lidar + RGB-D stop / slow-down zones, cmd_vel_smooth -> cmd_vel
     docking_server     precise docking on the chargers (opennav_docking), dock pose
                        detected from the lidar by the robot agent
     lifecycle_manager_navigation
@@ -38,7 +39,7 @@ from amr_fleet_manager.core.layout import build_graph, load_layout
 from amr_fleet_manager.sim.headless import robot_name, spawn_poses
 from amr_fleet_manager.tools.generate_world import write_factory_map
 
-CORE = ['amcl', 'controller_server', 'collision_monitor', 'docking_server']
+CORE = ['amcl', 'controller_server', 'velocity_smoother', 'collision_monitor', 'docking_server']
 FULL = ['planner_server', 'behavior_server', 'bt_navigator']
 
 
@@ -101,6 +102,11 @@ def robot_navigation(rid: str, params_file: str, full_stack: bool, log_level: st
         ComposableNode(package='nav2_controller', plugin='nav2_controller::ControllerServer',
                        name='controller_server', namespace=rid, parameters=[params_file],
                        remappings=[('cmd_vel', 'cmd_vel_nav')]),
+        ComposableNode(package='nav2_velocity_smoother',
+                       plugin='nav2_velocity_smoother::VelocitySmoother',
+                       name='velocity_smoother', namespace=rid, parameters=[params_file],
+                       remappings=[('cmd_vel', 'cmd_vel_nav'),
+                                   ('cmd_vel_smoothed', 'cmd_vel_smooth')]),
         ComposableNode(package='nav2_collision_monitor',
                        plugin='nav2_collision_monitor::CollisionMonitor',
                        name='collision_monitor', namespace=rid, parameters=[params_file]),

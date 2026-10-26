@@ -194,6 +194,7 @@ class RobotRecord:
     # stats
     tasks_done: int = 0
     odometer: float = 0.0
+    moving: bool = False
 
     @property
     def job_state(self) -> str:
@@ -232,6 +233,7 @@ class FleetCore:
         self._last_assign = -math.inf
         self.yields = 0
         self.passes = 0
+        self.unplanned_stops = 0
         self.passing: Dict[frozenset, dict] = {}
         self.deadlocks = 0
         self.reroutes = 0
@@ -259,6 +261,13 @@ class FleetCore:
                 r.needs_init = True
         if r.last_status > -math.inf:
             r.odometer += math.hypot(st.x - r.x, st.y - r.y)
+        # smoothness KPI: the robot stopped on its way (not at the end of its route)
+        if abs(st.v) > 0.3:
+            r.moving = True
+        elif abs(st.v) < 0.05:
+            if r.moving and r.route and not r.route_done and r.progress < len(r.route) - 1:
+                self.unplanned_stops += 1
+            r.moving = False
         r.x, r.y, r.yaw, r.v = st.x, st.y, st.yaw, st.v
         r.battery = st.battery
         r.charging = st.charging
@@ -974,7 +983,7 @@ class FleetCore:
                     if gap < 3.5 and not (self._shifting(a, lane) and self._shifting(b, lane)):
                         continue          # one of them stands still on the lane centre
                     shift = gap <= p.pass_detect or bool(prev and prev['shift'])
-                    new[key] = {'lane': lane, 'shift': shift,
+                    new[key] = {'lane': lane, 'shift': shift, 'dirs': {a.id: da, b.id: db},
                                 'since': prev['since'] if prev else self.now}
                     if shift and not (prev and prev['shift']):
                         self.passes += 1
@@ -983,6 +992,21 @@ class FleetCore:
                                    f'{a.id} và {b.id} gặp nhau trên {name} (cách {gap:.1f} m): '
                                    f'cùng lệch phải để tránh, không dừng, giữ route')
                     break
+        # a pair that has started shifting stays a pair until the robots are
+        # really past each other, even if one route leaves the lane meanwhile
+        # (turning at the next intersection): never back to the centre line
+        # while the other robot is still alongside
+        for key, info in old.items():
+            if key in new or not info.get('shift'):
+                continue
+            x, y = sorted(key)
+            rx, ry = self.robots[x], self.robots[y]
+            if not (rx.online and ry.online):
+                continue
+            ax, ay = self.g.lanes[info['lane']].dir
+            gap = ((ry.x - rx.x) * ax + (ry.y - rx.y) * ay) * info['dirs'][x]
+            if gap > -p.pass_after:
+                new[key] = info
         self.passing = new
         for r in self.robots.values():
             r.passing_with = None
@@ -992,7 +1016,7 @@ class FleetCore:
             x, y = sorted(key)
             self.robots[x].passing_with = y
             self.robots[y].passing_with = x
-        self.traffic.passing = set(new)
+        self.traffic.passing = {k: bool(v['shift']) for k, v in new.items()}
 
     def _shifting(self, r: RobotRecord, lane: str) -> bool:
         """r moves, or already stands shifted off the centre line of lane."""
@@ -1549,6 +1573,8 @@ class FleetCore:
             'charger_occupants': [o or '' for o in self.dock_booking.values()],
             'charger_queue': list(self.charge_queue),
             'tasks_completed': self.tasks.completed,
-            'yield_maneuvers': self.yields, 'pass_maneuvers': self.passes, 'deadlocks_resolved': self.deadlocks,
+            'yield_maneuvers': self.yields, 'pass_maneuvers': self.passes,
+            'unplanned_stops': self.unplanned_stops,
+            'fleet_km': sum(r.odometer for r in self.robots.values()) / 1000.0, 'deadlocks_resolved': self.deadlocks,
             'reroutes': self.reroutes,
         }

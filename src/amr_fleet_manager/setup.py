@@ -31,6 +31,7 @@ setup(
             'dashboard = amr_fleet_manager.nodes.dashboard_node:main',
             'fleet_cli = amr_fleet_manager.tools.fleet_cli:main',
             'headless_sim = amr_fleet_manager.sim.headless:main',
+            'tune_sim = amr_fleet_manager.sim.tune:main',
             'generate_world = amr_fleet_manager.tools.generate_world:main',
             'rviz_config = amr_fleet_manager.tools.rviz_config:main',
         ],

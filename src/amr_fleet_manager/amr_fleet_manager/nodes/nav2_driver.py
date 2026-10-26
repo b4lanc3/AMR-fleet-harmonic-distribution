@@ -34,7 +34,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from ..core.controller import MODE_FOLLOW, PathFollower, wrap
+from ..core.controller import MODE_FOLLOW, PathFollower, fillet_path, speed_ahead, wrap
 from .docking_client import DOCKED, DOCKING, IDLE, UNDOCKING, ChargerDocking
 
 
@@ -229,7 +229,9 @@ class Nav2Driver:
     def _limit_speed(self, s, x: float, y: float) -> None:
         last = len(s.waypoints) - 1
         i = min(s.reached + 1, last)
-        lim = s.speed_limits[i] if 0 <= i < len(s.speed_limits) else self.f.p.max_speed
+        # slow down early for slower segments ahead (lay-by entries, passing)
+        s_robot = s.cum[i] - math.dist((x, y), s.waypoints[i])
+        lim = speed_ahead(s.speed_limits, s.cum, s_robot, i, self.SOFT_DECEL)
         lim = float(min(lim, self.f.p.max_speed))
         if s.granted < last and s.reached < s.granted:
             # the traffic grant ends before the route: slow down early and
@@ -261,15 +263,15 @@ class Nav2Driver:
         path = Path()
         path.header.frame_id = self.map_frame
         path.header.stamp = self.node.get_clock().now().to_msg()
+        # corners rounded with arcs (same geometry as the built-in follower):
+        # Regulated Pure Pursuit drives through them instead of rotating in place
+        dense, _, _ = fillet_path(pts, self.f.p.corner_radius, self.PATH_STEP)
         heading = yaw
-        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-            L = math.hypot(bx - ax, by - ay)
-            if L < 1e-3:
+        for (ax, ay), (bx, by) in zip(dense, dense[1:]):
+            if math.hypot(bx - ax, by - ay) < 1e-4:
                 continue
             heading = math.atan2(by - ay, bx - ax)
-            n = max(1, int(math.ceil(L / self.PATH_STEP)))
-            for i in range(n):
-                path.poses.append(self._pose(ax + (bx - ax) * i / n, ay + (by - ay) * i / n, heading))
+            path.poses.append(self._pose(ax, ay, heading))
         end = pts[-1]
         final = heading
         if s.granted == last and not math.isnan(s.final_yaw):

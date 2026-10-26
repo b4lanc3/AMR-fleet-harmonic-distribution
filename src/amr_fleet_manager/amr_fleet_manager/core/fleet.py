@@ -29,6 +29,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Optional, Sequence, Set, Tuple
 
+from .assign import hungarian
 from .graph import CHARGER, LANE, PARKING, YIELD, TrafficGraph
 from .layout import build_graph
 from .production import Production
@@ -111,6 +112,13 @@ class FleetParams:
     advisory_margin: float = 0.3       # s after the other robot has cleared
     advisory_min: float = 0.35         # m/s
     production: bool = True            # False: no MES tasks, only manual tasks / demos
+    dispatch: str = 'batch'            # batch: optimal robot <-> task matching with line
+                                       # deadlines | greedy: nearest robot, task by task
+    # cost per second the served line would stand still before the goods arrive
+    # (production.deadline).  Measured with tune_sim: any weight > 0 lowered
+    # the throughput with 4-5 robots (the line buffers absorb it, shorter
+    # total travel wins) -> 0: optimal matching on travel time + task priority
+    w_late: float = 0.0
     station_handover: bool = False     # Gazebo: the station arms end loading / unloading
     handover_timeout: float = 30.0     # s: give up waiting for the arm
 
@@ -723,6 +731,8 @@ class FleetCore:
         open_tasks = self.tasks.open_tasks()
         if not open_tasks:
             return
+        if self.p.dispatch == 'batch':
+            open_tasks = self._assign_batch(open_tasks)
         for t in open_tasks:
             if not (self._station_free(t.pickup) and self._station_free(t.dropoff)):
                 continue
@@ -753,6 +763,61 @@ class FleetCore:
                 self.event(INFO, 'TASK', busy.id, f'{busy.id} nhận trước task tiếp theo {t.id} ({t.description})')
             elif best is not None:
                 self._start_task(best, t)
+
+    def _assign_batch(self, open_tasks: List[Task]) -> List[Task]:
+        """Match the free robots and the open tasks all at once (Hungarian):
+        minimum total of (travel to the pick-up + w_late * seconds the served
+        line would stand still before the goods arrive).  A busy robot that
+        will be done soon may still take a task as its next task: the tasks it
+        would serve better are returned for the task-by-task pass."""
+        robots = [r for r in self.robots.values() if self._available(r)]
+        tasks = [t for t in open_tasks
+                 if self._station_free(t.pickup) and self._station_free(t.dropoff)]
+        if not robots or not tasks:
+            return open_tasks
+        prod = self.production
+        deadline = {t.id: prod.deadline(t) for t in tasks}
+        leg = {t.id: self.g.travel_time(self._station_goal(t.pickup), self._station_goal(t.dropoff))
+               for t in tasks}
+        cost = []
+        for r in robots:
+            row = []
+            a = self._anchor(r)
+            for t in tasks:
+                eta = self.g.travel_time(a, self._station_goal(t.pickup))
+                if eta == math.inf:
+                    row.append(math.inf)
+                    continue
+                if r.state == CHARGING:
+                    eta += 15.0
+                arrive = eta + prod.load_time + leg[t.id]
+                late = max(0.0, arrive - deadline[t.id])
+                row.append(eta + self.p.w_late * late - 60.0 * t.priority)
+            cost.append(row)
+        # the cheapest pairs: a robot about to finish may serve a task sooner
+        rest = []
+        matched = set()
+        for i, j in hungarian(cost):
+            t, r = tasks[j], robots[i]
+            matched.add(t.id)
+            eta = cost[i][j] + 60.0 * t.priority
+            if self._busy_eta(t) + 3.0 < eta:
+                rest.append(t)
+                continue
+            self._start_task(r, t)
+        return rest + [t for t in open_tasks if t.id not in matched]
+
+    def _busy_eta(self, t: Task) -> float:
+        target = self._station_goal(t.pickup)
+        best = math.inf
+        for r in self.robots.values():
+            if (not r.online or r.paused or r.next_task is not None or r.task is None
+                    or r.job_state not in (TO_DROPOFF, UNLOADING)
+                    or r.battery < self.p.battery_low + 8.0):
+                continue
+            best = min(best, self._eta_task(r)
+                       + self.g.travel_time(self._station_goal(r.task.dropoff), target))
+        return best
 
     def _start_task(self, r: RobotRecord, t: Task, already_booked: bool = False) -> None:
         if not already_booked:
@@ -960,20 +1025,27 @@ class FleetCore:
     # ============================================================ passing
     def _lane_tracks(self, r: RobotRecord) -> Dict[str, Tuple[int, float, float]]:
         """Two-way lanes on the next metres of r's route: lane -> (direction along
-        the lane axis, axis coordinate of the robot, farthest coordinate reached)."""
+        the lane axis, axis coordinate of the robot, farthest coordinate reached
+        on the lane; +-inf when the route is still on the lane at the end of the
+        look-ahead)."""
         g = self.g
         out: Dict[str, Tuple[int, float, float]] = {}
         if not r.route:
             return out
         k = min(max(r.progress, 0), len(r.route) - 1)
         dist = math.dist((r.x, r.y), g.nodes[r.route[k]].xy)
+        last_lane = None                      # lane of the last edge looked at
         for i in range(k, len(r.route) - 1):
             u, v = r.route[i], r.route[i + 1]
             if dist > 2.0 * self.p.lookahead + 8.0:
+                if last_lane in out:          # beyond the look-ahead, still on it
+                    d, s0, _ = out[last_lane]
+                    out[last_lane] = (d, s0, d * math.inf)
                 break
             dist += g.distance(u, v)
             lane = g.pass_lane.get(u)
-            if lane is None or g.pass_lane.get(v) != lane:
+            last_lane = lane if lane is not None and g.pass_lane.get(v) == lane else None
+            if last_lane is None:
                 continue
             ax, ay = g.pass_axis[u]
             nu, nv = g.nodes[u], g.nodes[v]
@@ -1004,10 +1076,19 @@ class FleetCore:
                     db, sb, fb = tb[lane]
                     if da != -db:
                         continue
+                    # both must really drive that way now: a robot leaving a lay-by
+                    # or about to turn back on the lane is not passing anybody
+                    ax, ay = self.g.lanes[lane].dir
+                    if (math.cos(a.yaw) * ax + math.sin(a.yaw) * ay) * da < 0.7 or \
+                            (math.cos(b.yaw) * ax + math.sin(b.yaw) * ay) * db < 0.7:
+                        continue
                     gap = (sb - sa) * da              # b ahead of a, along a's direction
                     key = frozenset((a.id, b.id))
-                    meet = (fa - sa) * da + (fb - sb) * db >= gap - 0.5
                     prev = old.get(key)
+                    # both stay on the lane until they are past each other (a robot
+                    # turning off before that crosses the other one's shifted path)
+                    meet = (fa - sa) * da >= gap + p.pass_after and \
+                        (fb - sb) * db >= gap + p.pass_after
                     if gap < -p.pass_after or not meet or (prev is None and gap < 0.5):
                         continue          # passed each other (a new pair must still meet)
                     # paired early enough that their traffic grants never collide

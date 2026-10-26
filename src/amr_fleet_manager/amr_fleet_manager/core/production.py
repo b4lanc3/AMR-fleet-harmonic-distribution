@@ -16,6 +16,8 @@ task priority when a line is about to starve or block.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -314,6 +316,39 @@ class Production:
         else:
             return task.priority
         return 1
+
+    def deadline(self, task: Task) -> float:
+        """Seconds from now until the line this task serves stops without it:
+        a production line runs out of material (kit), a production line blocks
+        on a full output or the packer runs out of boxes (box transfer), a
+        packer blocks on a full pallet output (finished goods).  inf: no
+        constraint (manual task)."""
+        if task.type == KIT_DELIVERY:
+            ln = self.lines.get(task.meta.get('line', ''))
+            if ln is None:
+                return math.inf
+            left = ln.material + ln.input_kits * ln.products_per_kit
+            return max(0.0, left * ln.cycle_time - ln.progress)
+        if task.type == BOX_TRANSFER:
+            out = math.inf
+            ln = self.lines.get(task.meta.get('line', ''))
+            if ln is not None:
+                room = (ln.box_capacity - ln.box_fill) + \
+                    max(0, ln.output_capacity - ln.out_boxes - 1) * ln.box_capacity
+                out = max(0.0, room * ln.cycle_time - ln.progress)
+            pk = self.packers.get(task.meta.get('packer', ''))
+            if pk is not None:
+                left = pk.current + pk.input_boxes * self._box_size()
+                out = min(out, max(0.0, left * pk.pack_time - pk.progress))
+            return out
+        if task.type == FG_DELIVERY:
+            pk = self.packers.get(task.meta.get('packer', ''))
+            if pk is None:
+                return math.inf
+            room = (pk.pallet_capacity - pk.pallet_fill) + \
+                max(0, pk.output_capacity - pk.out_pallets - 1) * pk.pallet_capacity
+            return max(0.0, room * pk.pack_time - pk.progress)
+        return math.inf
 
     def on_cancel(self, task: Task) -> None:
         """Task cancelled before pick-up: roll the bookkeeping back."""

@@ -23,7 +23,9 @@ conflict on the graph's passing nodes - they may own the same lane nodes at
 the same time and drive past each other without stopping.  While a pair is
 only *announced* (not shifted yet) a robot may share the other's granted
 nodes but never its held ones (where it physically stands / can't stop
-before): if the pair breaks up, there is still room to brake.
+before): if the pair breaks up, there is still room to brake.  Only driving
+*along* the lane is shared: a node claimed by an edge that leaves or crosses
+the lane (turning into a lay-by, an intersection) is a strict claim.
 """
 
 from __future__ import annotations
@@ -76,6 +78,7 @@ class TrafficController:
         self.owners: Dict[int, Set[str]] = {}       # all owners (passing robots share nodes)
         self.passing: Dict[FrozenSet[str], bool] = {}   # pairs passing each other -> shifted
         self.held_by: Dict[int, Set[str]] = {}          # hard locks
+        self.strict_by: Dict[int, Set[str]] = {}        # claims never shared by passing
         self.physical_conflicts: List[tuple] = []
 
     # ---------------------------------------------------------- held nodes
@@ -115,8 +118,10 @@ class TrafficController:
         a.held_end = end
 
     # ---------------------------------------------------------------- core
-    def free_for(self, robot_id: str, nodes: Iterable[int]) -> Optional[Set[str]]:
-        """Return None if all nodes are free for robot_id, else the owners."""
+    def free_for(self, robot_id: str, nodes: Iterable[int],
+                 along_lane: bool = True) -> Optional[Set[str]]:
+        """Return None if all nodes are free for robot_id, else the owners.
+        along_lane=False: the request leaves / crosses a lane, no sharing."""
         owners: Set[str] = set()
         pass_nodes = self.g.pass_nodes
         for n in nodes:
@@ -124,17 +129,34 @@ class TrafficController:
                 for o in self.owners.get(c, ()):
                     if o == robot_id or o in owners:
                         continue
-                    if n in pass_nodes and c in pass_nodes:
+                    if along_lane and n in pass_nodes and c in pass_nodes and \
+                            o not in self.strict_by.get(c, ()):
                         shifted = self.passing.get(frozenset((robot_id, o)))
                         if shifted or (shifted is not None and o not in self.held_by.get(c, ())):
                             continue
                     owners.add(o)
         return owners or None
 
-    def _claim(self, robot_id: str, nodes: Iterable[int]) -> None:
+    def _claim(self, robot_id: str, nodes: Iterable[int], strict: Iterable[int] = ()) -> None:
         for n in nodes:
             self.owner.setdefault(n, robot_id)
             self.owners.setdefault(n, set()).add(robot_id)
+        for n in strict:
+            self.strict_by.setdefault(n, set()).add(robot_id)
+
+    def _along_lane(self, route: Sequence[int], i: int, j: int) -> bool:
+        """Route i..j only drives along one two-way lane (passing nodes)."""
+        lane = self.g.pass_lane
+        first = lane.get(route[i])
+        return first is not None and all(lane.get(route[m]) == first for m in range(i, j + 1))
+
+    def _strict_nodes(self, route: Sequence[int], i: int, j: int) -> Set[int]:
+        """Nodes swept by the edges of route i..j that are not along a lane."""
+        out: Set[int] = set()
+        for m in range(i, j):
+            if not self._along_lane(route, m, m + 1):
+                out |= self.g.sweep(route[m], route[m + 1]) | {route[m], route[m + 1]}
+        return out
 
     def _edge_nodes(self, route: Sequence[int], i: int, j: int) -> Set[int]:
         out: Set[int] = set()
@@ -147,6 +169,7 @@ class TrafficController:
         self.owner = {}
         self.owners = {}
         self.held_by = {}
+        self.strict_by = {}
         self.physical_conflicts = []
         for a in agents:
             self._held(a)
@@ -156,12 +179,15 @@ class TrafficController:
         # hard locks first (physical occupation), conflict check for safety
         for a in agents:
             nodes = set(a.held)
+            strict: Set[int] = set()
             if a.route:
-                nodes |= self._edge_nodes(a.route, max(0, a.held_end - len(a.held) + 1), a.held_end)
+                h0 = max(0, a.held_end - len(a.held) + 1)
+                nodes |= self._edge_nodes(a.route, h0, a.held_end)
+                strict = self._strict_nodes(a.route, h0, a.held_end)
             clash = self.free_for(a.id, nodes)
             if clash:
                 self.physical_conflicts.append((a.id, tuple(sorted(clash))))
-            self._claim(a.id, nodes)
+            self._claim(a.id, nodes, strict)
             for n in nodes:
                 self.held_by.setdefault(n, set()).add(a.id)
 
@@ -184,7 +210,8 @@ class TrafficController:
                     j += 1
                 block = route[i + 1:j + 1]
                 needed = set(block) | self._edge_nodes(route, i, j)
-                owners = self.free_for(a.id, needed)
+                along = self._along_lane(route, i, j)
+                owners = self.free_for(a.id, needed, along_lane=along)
                 if owners:
                     a.blocked_node = route[i + 1]
                     a.block_owners = owners
@@ -197,7 +224,7 @@ class TrafficController:
                             break
                     a.blocked_by = first or sorted(owners)[0]
                     break
-                self._claim(a.id, needed)
+                self._claim(a.id, needed, () if along else needed)
                 for m in range(i, j):
                     dist += g.distance(route[m], route[m + 1])
                 i = j

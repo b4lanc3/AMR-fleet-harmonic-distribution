@@ -120,3 +120,23 @@ def test_station_arm_handover_ends_loading_and_unloading(layout):
     assert len(seen) == 2, seen
     texts = ' '.join(e['text'] for e in fleet.events)
     assert 'Tay máy' in texts
+
+
+def test_hungarian_matches_brute_force():
+    import itertools
+    import random
+    from amr_fleet_manager.core.assign import hungarian
+    rng = random.Random(3)
+    for _ in range(200):
+        rows, cols = rng.randint(1, 5), rng.randint(1, 5)
+        cost = [[rng.choice([math.inf, rng.uniform(0, 50), rng.uniform(0, 50)]) for _ in range(cols)]
+                for _ in range(rows)]
+        got = hungarian(cost)
+        best = (0, 0.0)
+        for perm in itertools.permutations(range(max(rows, cols))):
+            pairs = [(i, perm[i]) for i in range(rows) if perm[i] < cols and cost[i][perm[i]] != math.inf]
+            cand = (len(pairs), -sum(cost[i][j] for i, j in pairs))
+            if cand > (best[0], -best[1]) or best == (0, 0.0):
+                best = (len(pairs), -cand[1])
+        assert len(got) == best[0]
+        assert math.isclose(sum(cost[i][j] for i, j in got), best[1], abs_tol=1e-6)

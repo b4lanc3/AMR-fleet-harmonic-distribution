@@ -984,7 +984,8 @@ def station_arms(layout: dict, graph) -> List[dict]:
         s = graph.nodes[graph.stations[o['station']].service]
         arms.append({'name': o['station'], 'mode': 'in' if o['kind'] == 'conveyor_in' else 'out',
                      'base': (cx + bx, cy + by, ARM_PEDESTAL), 'service': (s.x, s.y),
-                     'conveyor': (cx, cy, 0.29, o['yaw'])})
+                     'conveyor': (cx, cy, 0.29, o['yaw']),
+                     'feed': rot(0.0, -1.0, o['yaw'])})     # from the belt towards the line
     return arms
 
 
@@ -1051,7 +1052,8 @@ def build_station_arms(layout, graph, slices, out: List[str], mesh=None) -> str:
         cfg.append(f'<arm name="{sid}" mode="{a["mode"]}">'
                    f'<base>{base[0]:.3f} {base[1]:.3f} {base[2]:.3f}</base>'
                    f'<service>{a["service"][0]:.3f} {a["service"][1]:.3f}</service>'
-                   f'<conveyor>{cx:.3f} {cy:.3f} {cz:.3f} 0 0 {cyaw:.4f}</conveyor></arm>')
+                   f'<conveyor>{cx:.3f} {cy:.3f} {cz:.3f} 0 0 {cyaw:.4f}</conveyor>'
+                   f'<feed>{a["feed"][0]:.3f} {a["feed"][1]:.3f}</feed></arm>')
     d = ARM_DIMS
     return (f'  <plugin filename="amr_station_arms" name="amr_gazebo::StationArms">'
             f'<a1>{d["a1"]}</a1><d1>{d["d1"]}</d1><l2>{d["l2"]}</l2><l3>{d["l3"]}</l3>'

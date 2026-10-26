@@ -174,15 +174,16 @@ class PathFollower:
             s.rev += 1
             self._build_geometry()
         elif len(waypoints) == len(s.waypoints):
-            # same route re-shaped (shifted to pass another robot): keep the progress
+            # same route re-shaped (shifted to pass another robot) or new speed
+            # limits (speed advisory): keep the progress
             wps = [(float(x), float(y)) for x, y in waypoints]
-            lims = list(speed_limits) or [self.p.max_speed] * len(wps)
-            if wps != s.waypoints or lims != s.speed_limits:
-                s.waypoints, s.speed_limits = wps, lims
+            s.speed_limits = list(speed_limits) or [self.p.max_speed] * len(wps)
+            if wps != s.waypoints:
+                s.waypoints = wps
                 s.cum = [0.0]
                 for a, b in zip(wps, wps[1:]):
                     s.cum.append(s.cum[-1] + math.dist(a, b))
-                s.rev += 1
+                s.rev += 1                # the geometry changed: the path is re-sent
                 self._build_geometry()
         s.mode = mode
         s.granted = min(granted, len(s.waypoints) - 1)

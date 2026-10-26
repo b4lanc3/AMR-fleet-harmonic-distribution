@@ -94,3 +94,29 @@ def test_demo_head_on_scenario(layout):
     assert sim.metrics.collisions == 0
     texts = ' '.join(e['text'] for e in sim.fleet.events)
     assert 'lệch phải' in texts and 'Demo đối đầu hoàn tất' in texts
+
+
+def test_station_arm_handover_ends_loading_and_unloading(layout):
+    """With station arms (Gazebo) a robot at a line station waits for the arm's
+    handover instead of a fixed time; without the handover it would wait for
+    the timeout."""
+    from amr_fleet_manager.core.fleet import LOADING, UNLOADING, FleetParams
+    sim = HeadlessSim(layout, 3, FleetParams(station_handover=True))
+    fleet = sim.fleet
+    seen = set()
+    while sim.t < 600 and len(seen) < 2:
+        sim.step()
+        for r in fleet.robots.values():
+            st = r.task.pickup if r.state == LOADING else r.task.dropoff if r.state == UNLOADING else None
+            if st in fleet.arm_stations and r.handover_wait and (r.id, st) not in seen:
+                assert r.work_until - fleet.now > 20.0, 'still on the fixed loading time'
+                state = r.state
+                assert fleet.station_handover(st, r.id)
+                assert not fleet.station_handover(st, r.id)    # only once
+                for _ in range(3):
+                    sim.step()
+                assert r.state != state, 'handover did not end the station work'
+                seen.add((r.id, st))
+    assert len(seen) == 2, seen
+    texts = ' '.join(e['text'] for e in fleet.events)
+    assert 'Tay máy' in texts

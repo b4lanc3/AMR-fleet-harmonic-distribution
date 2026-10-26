@@ -104,7 +104,15 @@ class FleetParams:
     pass_detect: float = 8.0           # m: robots meeting head-on start shifting to their right
     pass_after: float = 2.5            # m: stay shifted until this far past the other robot
     pass_speed: float = 1.1            # m/s while shifted (lower priority robot: 0.8 of it)
+    # experimental: blocked by a moving robot -> arrive when it has cleared.
+    # Measured (tune_sim, 5-12 robots): slightly fewer stops but about twice
+    # the hard braking and less throughput with 10 robots -> off by default
+    advisory: bool = False
+    advisory_margin: float = 0.3       # s after the other robot has cleared
+    advisory_min: float = 0.35         # m/s
     production: bool = True            # False: no MES tasks, only manual tasks / demos
+    station_handover: bool = False     # Gazebo: the station arms end loading / unloading
+    handover_timeout: float = 30.0     # s: give up waiting for the arm
 
 
 @dataclass
@@ -187,6 +195,8 @@ class RobotRecord:
     opportunistic: bool = False
     yield_ctx: Optional[dict] = None
     passing_with: Optional[str] = None
+    handover_wait: bool = False        # loading / unloading ends when the station arm says so
+    advisory: Optional[float] = None   # m/s: time the arrival at a busy node instead of stopping
     # priority
     priority: float = 0.0
     priority_static: float = 0.0
@@ -233,6 +243,9 @@ class FleetCore:
         self._last_assign = -math.inf
         self.yields = 0
         self.passes = 0
+        # stations served by a transfer arm (line inputs / outputs, Gazebo)
+        self.arm_stations = {st['id'] for st in layout.get('stations', []) or []
+                             if str(st.get('object', '')).startswith('conveyor')}
         self.unplanned_stops = 0
         self.passing: Dict[frozenset, dict] = {}
         self.deadlocks = 0
@@ -354,6 +367,7 @@ class FleetCore:
         self._priorities()
         self._update_passing()
         self._run_traffic()
+        self._speed_advisories()
         if not self.paused:
             self._resolve_conflicts()
             self._release_yields()
@@ -460,12 +474,14 @@ class FleetCore:
             return
         if st == TO_PICKUP:
             r.state = LOADING
-            r.work_until = self.now + self.production.load_time
+            r.work_until = self.now + self._work_time(r, r.task.pickup if r.task else '',
+                                                      self.production.load_time)
             if r.task:
                 r.task.status = T_LOADING
         elif st == TO_DROPOFF:
             r.state = UNLOADING
-            r.work_until = self.now + self.production.unload_time
+            r.work_until = self.now + self._work_time(r, r.task.dropoff if r.task else '',
+                                                      self.production.unload_time)
             if r.task:
                 r.task.status = T_UNLOADING
         elif st == TO_CHARGER:
@@ -477,6 +493,25 @@ class FleetCore:
             pass
         else:
             r.state = IDLE
+
+    def _work_time(self, r: RobotRecord, station: str, nominal: float) -> float:
+        """Loading / unloading time: fixed, or until the station arm hands over."""
+        r.handover_wait = self.p.station_handover and station in self.arm_stations
+        return self.p.handover_timeout if r.handover_wait else nominal
+
+    def station_handover(self, station: str, robot_id: str) -> bool:
+        """The transfer arm of `station` has taken the load off / put it on the AMR."""
+        r = self.robots.get(robot_id)
+        if r is None or r.task is None or not r.handover_wait:
+            return False
+        if (r.state == LOADING and r.task.pickup == station) or \
+                (r.state == UNLOADING and r.task.dropoff == station):
+            r.handover_wait = False
+            r.work_until = self.now
+            what = 'đặt hàng lên' if r.state == LOADING else 'nhấc hàng khỏi'
+            self.event(INFO, 'STATION', r.id, f'Tay máy {station} đã {what} {r.id}')
+            return True
+        return False
 
     def _update_work(self, r: RobotRecord) -> None:
         now = self.now
@@ -1018,6 +1053,54 @@ class FleetCore:
             self.robots[y].passing_with = x
         self.traffic.passing = {k: bool(v['shift']) for k, v in new.items()}
 
+    # ========================================================== advisory
+    def _speed_advisories(self) -> None:
+        """Space-time arrival instead of stop-and-go: a robot whose grant ends
+        because a *moving* robot uses the nodes ahead (crossing at an
+        intersection, merging, a robot ahead on the same lane) gets a speed that
+        brings it to its stop point just after the other robot has cleared them.
+        The grant is extended meanwhile, so it never has to stop."""
+        p, g = self.p, self.g
+        for r in self.robots.values():
+            prev, r.advisory = r.advisory, None
+            if not p.advisory or not r.route or r.blocked_by is None or r.blocked_node is None:
+                continue
+            # hysteresis: an advisory stays while the robot is still held up
+            # (on / off flicker would mean accelerating and braking again)
+            r.advisory = prev
+            b = self.robots.get(r.blocked_by)
+            # only a reliable prediction: b drives steadily and may leave the zone
+            if b is None or not b.route or abs(b.v) < 0.5 or b.paused or b.stall_since is not None:
+                continue
+            zone = self.traffic.closure([r.blocked_node])
+            # time for b to leave the zone along its own route
+            k = min(max(b.progress, 0), len(b.route) - 1)
+            dist = math.dist((b.x, b.y), g.nodes[b.route[k]].xy)
+            inside = False
+            clear = None
+            for i in range(k, len(b.route)):
+                n = b.route[i]
+                if i > k:
+                    dist += g.distance(b.route[i - 1], n)
+                if n in zone:
+                    inside = True
+                elif inside or i - k > 6:
+                    clear = dist if inside and b.granted >= i else None
+                    break
+            if clear is None:
+                continue                      # b stays in the way: plain stop
+            t_clear = clear / max(abs(b.v), 0.3) + p.advisory_margin
+            # distance of r to the end of its grant
+            kr = min(max(r.progress, 0), len(r.route) - 1)
+            d = math.dist((r.x, r.y), g.nodes[r.route[kr]].xy)
+            for i in range(kr + 1, min(r.granted, len(r.route) - 1) + 1):
+                d += g.distance(r.route[i - 1], r.route[i])
+            if d < 0.5:
+                continue
+            v = d / t_clear
+            if v < abs(r.v) + 0.05 or prev is not None:
+                r.advisory = min(self.g.lane_speed, max(p.advisory_min, round(v, 1)))
+
     def _shifting(self, r: RobotRecord, lane: str) -> bool:
         """r moves, or already stands shifted off the centre line of lane."""
         if abs(r.v) > 0.05:
@@ -1035,12 +1118,26 @@ class FleetCore:
         g, p = self.g, self.p
         pts = [g.nodes[n].xy for n in r.route]
         limits = self._speed_limits(r.route)
+        adv: tuple = ()
+        if r.advisory is not None:
+            # from where the robot can slow down gently: the follower / driver
+            # speed profiles plan the deceleration to it
+            k0 = min(max(r.progress, 0), len(r.route) - 1)
+            need = max(0.0, (r.v * r.v - r.advisory ** 2) / (2.0 * 0.6))
+            d = math.dist((r.x, r.y), g.nodes[r.route[k0]].xy)
+            i = k0 + 1
+            while i < len(limits) and d < need:
+                d += g.distance(r.route[i - 1], r.route[i])
+                i += 1
+            for j in range(i, len(limits)):
+                limits[j] = min(limits[j], r.advisory)
+            adv = (('adv', r.advisory),)
         if r.passing_with is None:
-            return pts, limits, ()
+            return pts, limits, adv
         o = self.robots[r.passing_with]
         info = self.passing.get(frozenset((r.id, o.id)))
         if info is None or not info['shift']:
-            return pts, limits, ()
+            return pts, limits, adv
         lane = info['lane']
         k = min(max(r.progress, 0), len(r.route) - 1)
         speed = p.pass_speed * (0.8 if r.priority_static < o.priority_static else 1.0)
@@ -1067,7 +1164,7 @@ class FleetCore:
             if i + 1 < len(limits):
                 limits[i + 1] = min(limits[i + 1], speed)
             sig.append(i)
-        return pts, limits, tuple(sig)
+        return pts, limits, tuple(sig) + adv
 
     def _stalled_for(self, r: RobotRecord) -> float:
         return r.waiting(self.now)
@@ -1492,9 +1589,13 @@ class FleetCore:
             elif r.state == TO_DROPOFF:
                 txt = f'Chở "{r.task.cargo}" tới {r.task.dropoff}'
             elif r.state == LOADING:
-                txt = f'Đang nhận hàng tại {r.task.pickup} ({max(r.work_until - self.now, 0):.0f}s)'
+                txt = f'Đang nhận hàng tại {r.task.pickup} ' + \
+                      ('(tay máy đang đặt hàng)' if r.handover_wait
+                       else f'({max(r.work_until - self.now, 0):.0f}s)')
             elif r.state == UNLOADING:
-                txt = f'Đang trả hàng tại {r.task.dropoff} ({max(r.work_until - self.now, 0):.0f}s)'
+                txt = f'Đang trả hàng tại {r.task.dropoff} ' + \
+                      ('(tay máy đang nhấc hàng)' if r.handover_wait
+                       else f'({max(r.work_until - self.now, 0):.0f}s)')
         elif r.state == CHARGING:
             txt = f'Đang sạc tại {r.dock} ({r.battery:.0f}%)'
         if r.passing_with:

@@ -33,6 +33,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[params, {'layout_file': layout, 'num_robots': n,
                              'priority_mode': lc('priority_mode'),
                              'production': lc('production').lower() == 'true',
+                             'station_handover': lc('station_handover').lower() == 'true',
                              'publish_map': not nav2, 'publish_odom_tf': not nav2,
                              'use_sim_time': sim_time}])]
     if lc('agents') == 'per_robot':
@@ -75,6 +76,9 @@ def generate_launch_description():
         DeclareLaunchArgument('agents', default_value='single_process',
                               description='single_process | per_robot'),
         DeclareLaunchArgument('driver', default_value='simple', description='simple | nav2'),
+        DeclareLaunchArgument('station_handover', default_value='false',
+                              description='loading / unloading ends when the Gazebo station arm '
+                                          'hands over (true in Gazebo)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('dashboard_port', default_value='8080'),
         DeclareLaunchArgument('dashboard_host', default_value='0.0.0.0',

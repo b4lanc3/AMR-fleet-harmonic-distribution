@@ -42,6 +42,9 @@ def _bridge_config(ids, cameras, points, ground_truth):
            # MES line state -> conveyors of the LineAnimator system
            entry('/factory/line_state', '/factory/line_state', 'std_msgs/msg/String',
                  'gz.msgs.StringMsg', 'ROS_TO_GZ'),
+           # station arms: "<station>:<amr>" when they took / put the load -> fleet manager
+           entry('/factory/station_handover', '/factory/station_handover', 'std_msgs/msg/String',
+                 'gz.msgs.StringMsg', 'GZ_TO_ROS'),
            # walking workers (Pedestrians system) -> dashboard / RViz
            entry('/factory/people', '/factory/people', 'geometry_msgs/msg/PoseArray',
                  'gz.msgs.Pose_V', 'GZ_TO_ROS')]

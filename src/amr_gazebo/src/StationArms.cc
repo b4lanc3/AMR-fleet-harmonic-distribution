@@ -5,13 +5,16 @@
 //   output station (mode="out"): transfer conveyor -> AMR deck
 //
 // An arm starts a cycle when an AMR stands still on the station's service
-// slot.  It is synchronised with the robot through the AMR's cargo lift topic
-// (/<amr>/cargo_lift, the robot agent lifts the load on the deck when loading
-// is done and lowers it when unloading is done):
-//   in : reach down onto the load on the deck, hold it until the AMR has
-//        finished unloading (lift goes down), carry it onto the conveyor
-//   out: pick the waiting carton on the conveyor, put it down on the deck and
-//        hold it until the AMR has finished loading (lift goes up)
+// slot.  The arm drives the handover: when it holds the load on the deck (in)
+// or has put the carton down on the deck (out) it publishes
+// "<station>:<amr>" on /factory/station_handover; the fleet manager then
+// completes the AMR's unloading / loading at once (instead of a fixed time),
+// the robot agent moves its cargo lift and the arm, which follows the lift
+// (/<amr>/cargo_lift), carries on:
+//   in : grip the load on the deck -> handover -> lift down -> carry it onto
+//        the transfer conveyor, which feeds it into the line
+//   out: pick the carton fed from the line, put it on the deck -> handover ->
+//        lift up -> release; the next carton is fed onto the conveyor
 //
 //   <plugin filename="amr_station_arms" name="amr_gazebo::StationArms">
 //     <a1>0.10</a1> <d1>0.30</d1> <l2>0.85</l2> <l3>0.90</l3> <tool>0.19</tool>
@@ -20,6 +23,7 @@
 //       <base>45.25 63.95 0.45</base>          shoulder turret axis, top of the pedestal
 //       <service>44.0 65.0</service>           AMR service slot
 //       <conveyor>44.0 63.95 0.29 0.0</conveyor> carton place on the belt (x y z yaw)
+//       <feed>0 -1</feed>                     direction from the belt to the line
 //     </arm>
 //   </plugin>
 //
@@ -43,6 +47,7 @@
 #include <gz/math/Vector2.hh>
 #include <gz/math/Vector3.hh>
 #include <gz/msgs/double.pb.h>
+#include <gz/msgs/stringmsg.pb.h>
 #include <gz/plugin/Register.hh>
 #include <gz/sim/EntityComponentManager.hh>
 #include <gz/sim/System.hh>
@@ -60,6 +65,8 @@ constexpr double kAbove = 0.35;          // approach height above a pick / place
 constexpr double kSpeed = 0.9;           // tool tip speed [m/s]
 constexpr double kWaitTimeout = 14.0;    // s waiting for the AMR's lift
 constexpr double kAtSlot = 0.35;         // AMR on the service slot [m]
+constexpr double kFeed = 0.6;            // m a carton slides between the belt and the line
+constexpr double kFeedTime = 1.5;        // s
 constexpr double kStill = 0.02;          // m per check: AMR stands still
 
 double Smooth(double t)
@@ -86,11 +93,13 @@ struct Tip
 enum class Wait { None, LiftDown, LiftUp };
 enum class Act { None, Grip, Release, Done };
 
+// on arrival: act, then announce the handover, then wait for the AMR's lift
 struct Step
 {
   Tip to;
   Wait wait{Wait::None};
   Act act{Act::None};
+  bool handover{false};
 };
 
 struct Arm
@@ -101,6 +110,7 @@ struct Arm
   gz::math::Vector2d service;
   gz::math::Vector3d conv;
   double convYaw{0.0};
+  gz::math::Vector2d feed{0.0, -1.0};
   gz::sim::Entity turret{gz::sim::kNullEntity}, upper{gz::sim::kNullEntity},
     fore{gz::sim::kNullEntity}, tool{gz::sim::kNullEntity},
     carton{gz::sim::kNullEntity}, parcel{gz::sim::kNullEntity};
@@ -113,7 +123,9 @@ struct Arm
   bool moving{false};
   bool holding{false};
   bool parcelShown{false};
-  double parcelTimer{-1.0}; // s until the parcel on the conveyor appears / disappears
+  double parcelTimer{-1.0}; // s until the next carton is fed onto the output conveyor
+  double feedT{-1.0};       // >= 0: carton sliding (in: into the line, out: from the line)
+  bool acted{false};
   std::string amr;          // AMR served by the running cycle
   bool busy{false};
   bool served{false};       // cycle done, wait until the AMR leaves the slot
@@ -160,6 +172,8 @@ public:
       const auto c = a->Get<gz::math::Pose3d>("conveyor");
       arm.conv = c.Pos();
       arm.convYaw = c.Rot().Yaw();
+      if (a->HasElement("feed"))
+        arm.feed = a->Get<gz::math::Vector2d>("feed");
       // home: above the middle of the conveyor and the AMR slot
       const gz::math::Vector3d mid((arm.conv.X() + arm.service.X()) / 2.0,
                                    (arm.conv.Y() + arm.service.Y()) / 2.0, 1.25);
@@ -168,6 +182,7 @@ public:
       arm.parcelShown = !arm.in;      // a carton waits on the output conveyor
       this->arms.push_back(arm);
     }
+    this->handoverPub = this->node.Advertise<gz::msgs::StringMsg>("/factory/station_handover");
     gzmsg << "[StationArms] " << this->arms.size() << " station arms" << std::endl;
   }
 
@@ -245,12 +260,13 @@ private:
 
   // --------------------------------------------------------------- motion
   void Go(Arm &_arm, const gz::math::Vector3d &_p, double _yaw, Wait _wait = Wait::None,
-          Act _act = Act::None)
+          Act _act = Act::None, bool _handover = false)
   {
     Step s;
     s.to = this->ToTip(_arm, _p, _yaw);
     s.wait = _wait;
     s.act = _act;
+    s.handover = _handover;
     _arm.steps.push_back(s);
   }
 
@@ -267,7 +283,7 @@ private:
     if (_arm.in)
     {
       this->Go(_arm, deck + up, amrYaw);
-      this->Go(_arm, deck, amrYaw, Wait::LiftDown, Act::Grip);
+      this->Go(_arm, deck, amrYaw, Wait::LiftDown, Act::Grip, true);
       this->Go(_arm, deck + up, amrYaw);
       this->Go(_arm, belt + up, _arm.convYaw);
       this->Go(_arm, belt, _arm.convYaw, Wait::None, Act::Release);
@@ -279,7 +295,8 @@ private:
       this->Go(_arm, belt, _arm.convYaw, Wait::None, Act::Grip);
       this->Go(_arm, belt + up, _arm.convYaw);
       this->Go(_arm, deck + up, amrYaw);
-      this->Go(_arm, deck, amrYaw, Wait::LiftUp, Act::Release);
+      this->Go(_arm, deck, amrYaw, Wait::LiftUp, Act::None, true);
+      this->Go(_arm, deck, amrYaw, Wait::None, Act::Release);   // let go once loaded
       this->Go(_arm, deck + up, amrYaw);
     }
     Step home;
@@ -293,10 +310,21 @@ private:
     if (_arm.parcelTimer > 0.0)
     {
       _arm.parcelTimer -= _dt;
-      if (_arm.parcelTimer <= 0.0)
+      if (_arm.parcelTimer <= 0.0)       // out: the next carton comes from the line
       {
-        _arm.parcelShown = !_arm.in;     // in: carton conveyed away; out: next carton arrives
-        _arm.dirty = true;
+        _arm.parcelShown = true;
+        _arm.feedT = 0.0;
+      }
+    }
+    if (_arm.feedT >= 0.0)
+    {
+      _arm.feedT += _dt;
+      _arm.dirty = true;
+      if (_arm.feedT >= kFeedTime)
+      {
+        _arm.feedT = -1.0;
+        if (_arm.in)
+          _arm.parcelShown = false;     // in: fed into the line
       }
     }
     if (_arm.steps.empty())
@@ -310,9 +338,10 @@ private:
       _arm.from.yaw = s.to.yaw - (WrapPi(2.0 * (s.to.yaw - _arm.cur.yaw)) / 2.0);
       const double arc = std::hypot(0.5 * (_arm.from.rho + s.to.rho) * (s.to.az - _arm.from.az),
                                     std::hypot(s.to.rho - _arm.from.rho, s.to.z - _arm.from.z));
-      _arm.dur = std::max(0.6, arc / kSpeed);
+      _arm.dur = arc < 1e-3 ? 0.0 : std::max(0.6, arc / kSpeed);
       _arm.t = 0.0;
       _arm.waited = 0.0;
+      _arm.acted = false;
       _arm.moving = true;
     }
     if (_arm.t < _arm.dur)
@@ -326,6 +355,17 @@ private:
       _arm.dirty = true;
       return;
     }
+    if (!_arm.acted)
+    {
+      _arm.acted = true;
+      this->Act_(_arm, s.act);
+      if (s.handover)
+      {
+        gz::msgs::StringMsg msg;
+        msg.set_data(_arm.name + ":" + _arm.amr);
+        this->handoverPub.Publish(msg);
+      }
+    }
     if (s.wait != Wait::None)
     {
       _arm.waited += _dt;
@@ -334,7 +374,14 @@ private:
       if (!ok && _arm.waited < kWaitTimeout)
         return;
     }
-    switch (s.act)
+    _arm.dirty = true;
+    _arm.moving = false;
+    _arm.steps.pop_front();
+  }
+
+  void Act_(Arm &_arm, Act _act)
+  {
+    switch (_act)
     {
       case Act::Grip:
         _arm.holding = true;
@@ -345,22 +392,20 @@ private:
         _arm.holding = false;
         if (_arm.in)
         {
-          _arm.parcelShown = true;      // on the belt, conveyed away after a while
-          _arm.parcelTimer = 2.5;
+          _arm.parcelShown = true;      // on the belt, then fed into the line
+          _arm.feedT = 0.0;
         }
         break;
       case Act::Done:
         _arm.busy = false;
         _arm.served = true;
         if (!_arm.in)
-          _arm.parcelTimer = 3.0;       // next carton on the output conveyor
+          _arm.parcelTimer = 1.0;       // next carton from the line
         break;
       default:
         break;
     }
     _arm.dirty = true;
-    _arm.moving = false;
-    _arm.steps.pop_front();
   }
 
   // -------------------------------------------------------------- AMRs
@@ -429,7 +474,7 @@ private:
         _arm.served = false;       // the AMR left: ready for the next one
       return;
     }
-    if (at == nullptr || at->stillFor < 0.8 || _arm.parcelTimer > 0.0)
+    if (at == nullptr || at->stillFor < 0.8 || _arm.parcelTimer > 0.0 || _arm.feedT >= 0.0)
       return;
     const double lift = this->Lift(who);
     if (_arm.in ? lift > 0.0 : (lift < 0.0 && _arm.parcelShown))
@@ -495,9 +540,17 @@ private:
       ? gz::math::Pose3d(tip - gz::math::Vector3d(0, 0, h / 2.0),
                          gz::math::Quaterniond(0, 0, _arm.cur.yaw))
       : gz::math::Pose3d(_arm.base.X(), _arm.base.Y(), kHidden, 0, 0, 0));
+    // sliding between the belt and the line: in -> towards the line, out -> from it
+    double slide = 0.0;
+    if (_arm.feedT >= 0.0)
+    {
+      const double k = Smooth(_arm.feedT / kFeedTime);
+      slide = kFeed * (_arm.in ? k : 1.0 - k);
+    }
+    const gz::math::Vector3d at = _arm.conv +
+      gz::math::Vector3d(_arm.feed.X() * slide, _arm.feed.Y() * slide, h / 2.0);
     this->Set(_ecm, _arm.parcel, _arm.parcelShown
-      ? gz::math::Pose3d(_arm.conv + gz::math::Vector3d(0, 0, h / 2.0),
-                         gz::math::Quaterniond(0, 0, _arm.convYaw))
+      ? gz::math::Pose3d(at, gz::math::Quaterniond(0, 0, _arm.convYaw))
       : gz::math::Pose3d(_arm.conv.X(), _arm.conv.Y(), kHidden, 0, 0, 0));
     _arm.dirty = false;
   }
@@ -509,6 +562,7 @@ private:
   std::map<std::string, double> lift;
   std::mutex mutex;
   gz::transport::Node node;
+  gz::transport::Node::Publisher handoverPub;
   double lastScan{-1.0};
   double lastList{-10.0};
   bool resolved{false};

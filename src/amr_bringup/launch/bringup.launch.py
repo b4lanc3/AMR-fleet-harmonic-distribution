@@ -96,6 +96,7 @@ def launch_setup(context, *args, **kwargs):
                           'production': lc('production'), 'agents': lc('agents'),
                           'dashboard_port': lc('dashboard_port'),
                           'dashboard_host': lc('dashboard_host'),
+                          'station_handover': 'true' if gazebo else 'false',
                           'driver': 'nav2' if nav2 else 'simple'}.items()))
 
     if lc('rviz').lower() == 'true':

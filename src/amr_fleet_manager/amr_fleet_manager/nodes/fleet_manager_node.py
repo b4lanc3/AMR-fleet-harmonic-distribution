@@ -69,6 +69,7 @@ class FleetManagerNode(Node):
         self.declare_parameter('station_capacity', 2)
         self.declare_parameter('start_paused', False)
         self.declare_parameter('production', True)
+        self.declare_parameter('station_handover', False)
         # Nav2 mode: map_server publishes the AMCL map and AMCL publishes map -> odom
         self.declare_parameter('publish_map', True)
         self.declare_parameter('publish_odom_tf', True)
@@ -91,7 +92,8 @@ class FleetManagerNode(Node):
                              battery_full=gp('battery_full').value,
                              battery_opportunistic=gp('battery_opportunistic').value,
                              station_capacity=gp('station_capacity').value,
-                             production=gp('production').value)
+                             production=gp('production').value,
+                             station_handover=gp('station_handover').value)
         self.graph = build_graph(self.layout)
         self.core = FleetCore(self.layout, ids, params, graph=self.graph)
         if gp('start_paused').value:
@@ -113,6 +115,8 @@ class FleetManagerNode(Node):
         self.prod_pub = self.create_publisher(ProductionState, '/fleet/production', qos)
         self.event_pub = self.create_publisher(FleetEvent, '/fleet/events', QoSProfile(depth=100))
         self.json_pub = self.create_publisher(String, '/fleet/snapshot_json', qos)
+        # Gazebo station arms: "<station>:<robot>" when they took / put the load
+        self.create_subscription(String, '/factory/station_handover', self._on_handover, qos)
         self.marker_pub = self.create_publisher(MarkerArray, '/fleet/markers', qos)
         self.static_pub = self.create_publisher(MarkerArray, '/fleet/static_markers', latched)
         self.publish_map = gp('publish_map').value
@@ -146,6 +150,10 @@ class FleetManagerNode(Node):
     # ------------------------------------------------------------- helpers
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_handover(self, msg: String) -> None:
+        station, _, rid = msg.data.partition(':')
+        self.core.station_handover(station, rid)
 
     def _on_status(self, msg: RobotStatus) -> None:
         self.core.update_status(RobotStatusIn(

@@ -488,7 +488,30 @@ def build_graph(layout: dict) -> TrafficGraph:
     graph.build_warnings = builder.warnings  # type: ignore[attr-defined]
     graph.lanes = builder.lanes              # type: ignore[attr-defined]
     mark_passing_nodes(layout, graph)
+    mark_walkway_crossings(layout, graph)
     return graph
+
+
+def _segments_cross(a: Vec, b: Vec, c: Vec, d: Vec) -> bool:
+    def side(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return side(a, b, c) * side(a, b, d) < 0 and side(c, d, a) * side(c, d, b) < 0
+
+
+def mark_walkway_crossings(layout: dict, graph: TrafficGraph) -> None:
+    """Edges that cross a walkway of the workers (`people:` routes, painted
+    zebra crossings) are limited to `crossing_speed`: the AMR slows down
+    before the crossing instead of letting the collision monitor brake when a
+    person steps out."""
+    speed = float((layout.get('traffic', {}) or {}).get('crossing_speed', 0.9))
+    walks = [s for w in people_routes(layout) for s in people_segments(w)]
+    graph.crossing_edges = set()
+    for es in graph.out_edges:
+        for e in es:
+            a, b = graph.nodes[e.u].xy, graph.nodes[e.v].xy
+            if any(_segments_cross(a, b, c, d) for c, d in walks):
+                e.speed = min(e.speed, speed)
+                graph.crossing_edges.add((e.u, e.v))
 
 
 def _rect_distance(p: Vec, rect: Sequence[float]) -> float:

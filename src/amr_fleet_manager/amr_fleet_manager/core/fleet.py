@@ -82,6 +82,8 @@ class FleetParams:
     battery_full: float = 95.0
     battery_opportunistic: float = 50.0
     opportunistic_max_trip: float = 70.0  # s, only charge 'on the way' when a dock is near
+    max_away_share: float = 0.4        # opportunistic charging: at most this share of the
+                                       # fleet away charging at the same time (staggered)
     charge_release: float = 60.0       # opportunistic charger may leave for a task
     charge_release_low: float = 80.0   # robot that came in low may leave for a task
     assign_period: float = 1.0
@@ -573,7 +575,7 @@ class FleetCore:
         if allow_charge and r.battery < self.p.battery_low:
             self._request_charge(r, opportunistic=False)
             return
-        if allow_charge and r.battery < self.p.battery_opportunistic:
+        if allow_charge and r.battery < self.p.battery_opportunistic and self._can_top_up():
             dock = self._free_dock(r)
             here = r.current_node if not r.route else self._prefix(r)[-1]
             if dock is not None and self.g.travel_time(here, self.g.chargers[dock]) \
@@ -623,6 +625,18 @@ class FleetCore:
             if c < best_c:
                 best, best_c = cid, c
         return best
+
+    def _can_top_up(self) -> bool:
+        """Opportunistic charging is staggered: only while the fleet has spare
+        robots (fewer queued tasks than free robots) and only a share of it
+        away charging at the same time."""
+        robots = [r for r in self.robots.values() if r.online]
+        away = sum(r.state in (TO_CHARGER, CHARGING, WAIT_CHARGER) for r in robots)
+        if away + 1 > max(1, math.ceil(self.p.max_away_share * len(robots))):
+            return False
+        waiting = sum(1 for t in self.tasks.open_tasks() if t.status == QUEUED)
+        free = sum(1 for r in robots if self._available(r))
+        return waiting < free
 
     def _request_charge(self, r: RobotRecord, opportunistic: bool) -> None:
         dock = self._free_dock(r)

@@ -145,10 +145,16 @@ def launch_setup(context, *args, **kwargs):
                               'amr.urdf.xacro')
     delay = float(lc('spawn_delay'))
     descriptions = []
+    # full resolution for the robot whose images are shown, smaller point clouds
+    # (4x less data through the bridge / DDS) for the others
+    w0, h0 = lc('camera_resolution').split('x')
+    w1, h1 = lc('camera_resolution_others').split('x')
     for i, rid in enumerate(ids):
+        full = cameras == 'all' or i == 0
         descriptions.append((rid, xacro.process_file(xacro_file, mappings={
             'robot_name': rid, 'color': robot_rgba_str(i), 'gazebo': 'true',
             'camera': lc('camera'), 'camera_rate': lc('camera_rate'),
+            'camera_width': w0 if full else w1, 'camera_height': h0 if full else h1,
             'lidar_rate': lc('lidar_rate'), 'odom': lc('odom')}).toxml()))
     actions.append(rsp_container('fleet_state_publishers', descriptions, True))
     for i, (rid, (x, y, yaw)) in enumerate(zip(ids, poses)):
@@ -174,6 +180,10 @@ def generate_launch_description():
         DeclareLaunchArgument('camera', default_value='true', description='simulate the RGB-D camera'),
         DeclareLaunchArgument('camera_rate', default_value='5'),
         DeclareLaunchArgument('lidar_rate', default_value='10'),
+        DeclareLaunchArgument('camera_resolution', default_value='320x240',
+                              description='RGB-D resolution of the robots whose images are bridged'),
+        DeclareLaunchArgument('camera_resolution_others', default_value='160x120',
+                              description='RGB-D resolution of the other robots (point cloud only)'),
         DeclareLaunchArgument('bridge_cameras', default_value='first',
                               description='bridge camera images to ROS: none | first | all'),
         DeclareLaunchArgument('bridge_points', default_value='all',

@@ -3,7 +3,7 @@
      All topics are absolute and namespaced (/amr_01/...) so one ros_gz_bridge
      can serve the whole fleet. -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="amr_gazebo" params="ns wheel_sep wheel_r camera camera_rate lidar_rate odom:=ground_truth">
+  <xacro:macro name="amr_gazebo" params="ns wheel_sep wheel_r camera camera_rate lidar_rate odom:=ground_truth camera_width:=320 camera_height:=240">
     <xacro:property name="wheel_odom" value="${odom == 'wheel'}"/>
 
     <gazebo>
@@ -122,8 +122,8 @@
           <camera name="rgbd">
             <horizontal_fov>1.50</horizontal_fov>
             <image>
-              <width>320</width>
-              <height>240</height>
+              <width>${camera_width}</width>
+              <height>${camera_height}</height>
               <format>R8G8B8</format>
             </image>
             <clip>

@@ -39,6 +39,11 @@ def spin_nodes(nodes: Sequence[Node]) -> None:
         ex.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        # Humble: Ctrl+C may shut the context down while the executor builds
+        # its wait set (RCLError "context is not valid") - a normal shutdown
+        if rclpy.ok():
+            raise
     finally:
         for nd in nodes:
             nd.destroy_node()

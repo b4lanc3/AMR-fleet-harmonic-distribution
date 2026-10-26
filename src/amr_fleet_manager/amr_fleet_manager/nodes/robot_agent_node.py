@@ -295,6 +295,9 @@ def main(args=None) -> None:
         rclpy.spin(node)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
+    except RuntimeError:          # Humble: context shut down by Ctrl+C while spinning
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():

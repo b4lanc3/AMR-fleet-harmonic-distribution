@@ -18,6 +18,8 @@
   <xacro:arg name="gazebo" default="true"/>
   <xacro:arg name="camera" default="true"/>
   <xacro:arg name="camera_rate" default="5"/>
+  <xacro:arg name="camera_width" default="320"/>    <!-- RGB-D resolution (point cloud size) -->
+  <xacro:arg name="camera_height" default="240"/>
   <xacro:arg name="lidar_rate" default="10"/>
   <xacro:arg name="odom" default="ground_truth"/>   <!-- ground_truth | wheel (for AMCL / Nav2) -->
 
@@ -275,6 +277,7 @@
     <xacro:include filename="$(find amr_description)/urdf/amr.gazebo.xacro"/>
     <xacro:amr_gazebo ns="${ns}" wheel_sep="${wheel_sep}" wheel_r="${wheel_r}"
                       camera="$(arg camera)" camera_rate="$(arg camera_rate)"
+                      camera_width="$(arg camera_width)" camera_height="$(arg camera_height)"
                       lidar_rate="$(arg lidar_rate)" odom="$(arg odom)"/>
   </xacro:if>
 </robot>

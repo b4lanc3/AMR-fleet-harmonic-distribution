@@ -32,6 +32,7 @@ traffic:
   bay_speed: 0.65            # m/s inside lay-bys, docks, bays
   pass_offset: 0.7           # two-way lanes: robots meeting head-on both shift this far to their right
   pass_clearance: 0.55       # free space required around a shifted robot centre
+  crossing_speed: 0.9        # m/s on edges that cross a walkway of the workers
   two_way_cost_factor: 1.10  # planner penalty for single two-way lanes
   yield_bay_spacing: 14.0    # automatic yield bays every N metres (dual lanes)
   yield_bay_clearance: 0.75  # obstacle clearance required around a yield bay

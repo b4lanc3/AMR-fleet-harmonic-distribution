@@ -429,3 +429,37 @@ trong 550 s mô phỏng). Sản phẩm chạy trên băng tải của cả 8 dâ
   fleet manager 40 % → 11 % CPU. `executor:=single` quay về executor cũ.
 * Tránh va chạm giữa các robot do fleet manager đảm bảo bằng đặt chỗ node; Nav2 lo bám đường, định vị và an toàn cục
   bộ (người, vật cản lạ).
+
+## 12. Độ mượt và phân phối công việc
+
+Đo được thì mới tối ưu được: `headless_sim` in thêm dòng `smooth` (số lần dừng giữa đường / km, tốc độ trung bình,
+số lần phanh gấp > 1.2 m/s² làm mất ≥ 0.3 m/s, RMS gia tốc / độ giật, % thời gian bị chặn, hệ số sử dụng dây chuyền),
+dashboard hiện số lần tránh nhau và số lần dừng giữa đường / km. Quét tham số tự động:
+
+```bash
+ros2 run amr_fleet_manager tune_sim --robots 5 7 10 --minutes 20 --fleet pass_detect=6,8,10 --follower max_decel=0.7,0.9
+```
+
+| Thay đổi | Cách làm | Kết quả đo (7 robot, headless 30 phút, trước → sau) |
+|---|---|---|
+| Velocity smoother | `nav2_velocity_smoother` giữa controller và collision monitor (tăng tốc 0.9, giảm tốc 1.2 m/s²) | Nav2: không còn vận tốc nhảy bậc |
+| Bo góc cua | Mỗi góc là cung tròn bán kính 1 m (`fillet_path`), cùng hình học cho path Nav2 và follower; tốc độ vào cua theo gia tốc ngang 0.6 m/s², RPP `regulated_linear_scaling_min_radius: 2.0` | phanh gấp 409 → ~30 |
+| Giảm tốc trước | Nhìn trước giới hạn tốc độ (lay-by, đoạn tránh nhau), profile phanh tính trước một chu kỳ, giữ chỗ theo quãng phanh êm 0.6 m/s² | dừng giữa đường 2.2 → 1.5–2.4 /km |
+| Giao nhận theo sự kiện | Tay máy báo `/factory/station_handover`, fleet kết thúc bốc/dỡ ngay (dự phòng timeout 30 s); thùng trượt giữa băng tải và dây chuyền | Gazebo: 25 lần giao nhận / 10 phút |
+| Phân công theo lô | Ghép robot rảnh với task mở bằng thuật toán Hungarian (tổng thời gian đi + ưu tiên task) | 4 robot +25 %, 5 robot +8 % thành phẩm/giờ |
+| Sạc so le | Sạc tranh thủ chỉ khi đội dư xe và tối đa 40 % đội vắng mặt cùng lúc | 5 robot 360 → 384 /h, xe vắng tối đa 4 → 2 (7 robot) |
+| Qua vạch đi bộ | Cạnh cắt lối đi của công nhân giới hạn 0.9 m/s | xe giảm tốc trước vạch |
+| Camera 3D | 320×240 cho robot có ảnh lên RViz, 160×120 (point cloud nhỏ 4 lần) cho các robot khác | ít tải DDS hơn |
+
+Đã thử nhưng **tắt mặc định** vì số liệu không tốt hơn: tư vấn tốc độ ở giao lộ (`advisory: true`, robot bị chặn bởi
+xe đang chạy canh thời điểm tới) giảm nhẹ số lần dừng nhưng phanh gấp tăng gấp đôi; phạt trễ hạn dây chuyền khi phân
+công (`w_late > 0`) làm giảm sản lượng ở 4–5 robot.
+
+Số robot (headless 60 phút): dây chuyền đạt 100 % từ **8 robot**.
+
+| Robot | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|
+| Thành phẩm / giờ | 192 | 288 | 384 | 420 | 504 | 600 | 612 | 624 |
+| Dây SX / đóng gói chạy | 54 / 47 % | 63 / 59 % | 75 / 72 % | 83 / 78 % | 92 / 91 % | 100 / 97 % | 100 / 99 % | 100 / 99 % |
+
+Gazebo + Nav2, 7 robot, có GUI (RTX 4060 laptop): RTF 1.00, CPU ~23 %, GPU ~37 %, RAM ~8.5 GB.

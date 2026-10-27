@@ -392,16 +392,6 @@ function drawStatic() {
       else if (e.two_way) { g.strokeStyle = css('--lane-two'); g.lineWidth = 2 * dpr; g.setLineDash([5 * dpr, 3 * dpr]); }
       else { g.strokeStyle = css('--lane'); g.lineWidth = 1.5 * dpr; g.setLineDash([]); }
       g.stroke(); g.setLineDash([]);
-      if (e.lane && !e.two_way) {   // small arrow head in the middle of the edge
-        const L = Math.hypot(bx - ax, by - ay);
-        if (L > 9 * dpr) {
-          const ux = (bx - ax) / L, uy = (by - ay) / L, mx = (ax + bx) / 2, my = (ay + by) / 2, k = 3.2 * dpr;
-          g.fillStyle = css('--lane');
-          g.beginPath(); g.moveTo(mx + ux * k, my + uy * k);
-          g.lineTo(mx - ux * k - uy * k, my - uy * k + ux * k); g.lineTo(mx - ux * k + uy * k, my - uy * k - ux * k);
-          g.closePath(); g.fill();
-        }
-      }
     }
     // special nodes
     g.font = `${Math.max(9, 0.95 * s)}px system-ui`;

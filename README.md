@@ -184,15 +184,16 @@ Cổng xuất đặt ở tường Nam trước kho D (không phải dưới các
 nên đi ~94 m, nhưng sau đó chỉ cách kho linh kiện ~85 m; cổng ở phía Đông Trục giữa gần dây đóng gói hơn (~59 m)
 nhưng chuyến rỗng về kho linh kiện dài ~165–220 m.
 
-**Số dây chuyền chạy theo số robot** (`active_lines: auto`, `robots_per_line: 2.0`): MES chạy ceil(số robot online / 2)
-cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D và cổng xuất). 5 robot → 3 cặp, 7 → 4, 12 → 6, 15 → 8. Dây bị tắt chạy
+**Số dây chuyền chạy theo số robot** (`active_lines: auto`, `robots_per_line: 1.5`): MES chạy ceil(số robot online / 1.5)
+cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D và cổng xuất). 5 robot → 4 cặp, 7 → 5, 9 → 6, 12–15 → 8. Dây bị tắt chạy
 hết hàng đang có rồi nghỉ (không nhận kit / thùng mới). Thêm robot thì bật ngay; bớt robot thì tắt sau 20 s.
 
-Năng lực (mô phỏng headless, 60 phút sau 10 phút khởi động; SP **đã xuất lên xe tải**): 5 robot ≈ 480 SP/giờ,
-7 robot ≈ 620, 9 robot ≈ 720, 12 robot ≈ 850, 15 robot ≈ 960 (0 va chạm). Chặng kho thêm 1 chuyến cho mỗi thùng (4 chuyến thay vì 3): với thùng
+Năng lực (mô phỏng headless, 60 phút sau 10 phút khởi động; SP **đã xuất lên xe tải**): 5 robot ≈ 528 SP/giờ,
+7 robot ≈ 704, 9 robot ≈ 848, 12 robot ≈ 1008, 15 robot ≈ 1200 (0 va chạm). Chặng kho thêm 1 chuyến cho mỗi thùng (4 chuyến thay vì 3): với thùng
 12 SP năng suất giảm ~20 % (5 robot 360, 9 robot 550, 15 robot 790); **thùng 16 SP** giảm số chuyến AMR trên mỗi SP đi
-1/4 nên bù lại được. Đã thử: `robots_per_line` 1.5 / 2.0 / 2.5 / 3.0 (2.0 tốt nhất), bệ 3 thùng thay 2, trọng số ưu
-tiên task của bộ điều phối 0–120 s (không khác biệt đo được).
+1/4 nên bù lại được. Đã thử: bệ 3 thùng thay 2, trọng số ưu tiên task của bộ điều phối 0–120 s (không khác biệt đo
+được); `robots_per_line` trước khi có cắt làn thì 2.0 tốt nhất, sau khi có cắt làn linh hoạt robot phục vụ được nhiều
+dây hơn nên 1.5 tốt hơn (5 / 7 / 9 robot: 480 → 528, 656 → 704, 800 → 848 SP/giờ).
 
 Khi khởi động, các dây chuyền đã có sẵn bán thành phẩm (`initial_wip`) nên mọi dây chạy ngay, không phải chờ robot
 chở chuyến đầu.

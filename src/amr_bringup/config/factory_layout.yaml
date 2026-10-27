@@ -289,8 +289,10 @@ people:
 #  loader_time + belt length / belt_speed + drop_time to cross it (lead time).
 #  Headless study (60 min after warm-up): 16 products per carton instead of 12
 #  cut the AMR trips per product by a quarter: 5 robots ship ~480 products/h
-#  (12/carton: ~360), 9 robots ~720, 12 robots ~850; robots_per_line 2.0 beat
-#  1.5 and 2.5, the dispatcher's priority weight made no measurable difference.
+#  (12/carton: ~360); the dispatcher's priority weight made no measurable
+#  difference.  With lane crossing anywhere the fleet serves more lines:
+#  robots_per_line 1.5 ships 528 / 704 / 848 / 1008 / 1200 products/h with
+#  5 / 7 / 9 / 12 / 15 robots (2.0: 480 / 656 / 800 / 1008 / 1200).
 # -----------------------------------------------------------------------------
 process:
   load_time: 8.0              # s to load a robot at a pick-up station
@@ -308,11 +310,10 @@ process:
   drop_time: 5.0
   belt_speed: 0.2             # m/s
   # Lines that run: "all", or "auto" = ceil(robots online / robots_per_line),
-  # west lines first (headless study: 5 robots make 446 products/h on 3 lines
-  # but only 346/h spread over 8).  A line switched off finishes its work in
-  # progress and gets no new kits / cartons.
+  # west lines first (5 robots: 4 + 4 lines, 7: 5, 9: 6, 12-15: all 8).  A line
+  # switched off finishes its work in progress and gets no new kits / cartons.
   active_lines: auto
-  robots_per_line: 2.0
+  robots_per_line: 1.5
   production_lines:
     - {id: B1, name: "Day chuyen SX 1", input: B1_IN, output: B1_OUT, cycle_time: 22.0,
        products_per_kit: 16, box_capacity: 16, input_capacity: 2, output_capacity: 2, target_input: 2}

@@ -191,6 +191,7 @@ class TrafficController:
             for n in nodes:
                 self.held_by.setdefault(n, set()).add(a.id)
 
+        gaps = getattr(g, 'crossover_gap', {})
         for a in sorted(agents, key=lambda r: -r.priority):
             if not a.route:
                 continue
@@ -212,6 +213,9 @@ class TrafficController:
                 needed = set(block) | self._edge_nodes(route, i, j)
                 along = self._along_lane(route, i, j)
                 owners = self.free_for(a.id, needed, along_lane=along)
+                if not owners and (route[i], route[i + 1]) in gaps:
+                    owners = self._no_gap(a, gaps[(route[i], route[i + 1])], route[i + 1],
+                                          agents)
                 if owners:
                     a.blocked_node = route[i + 1]
                     a.block_owners = owners
@@ -229,6 +233,27 @@ class TrafficController:
                     dist += g.distance(route[m], route[m + 1])
                 i = j
             a.granted = i
+
+    def _no_gap(self, a: TrafficAgent, zone: Set[int], target: int,
+                agents: Sequence[TrafficAgent]) -> Optional[Set[str]]:
+        """A robot turning across to the other lane of an aisle waits for a
+        gap: the robots on that lane about to drive through `target` (their
+        next nodes are in `zone`, the lane before it, and they go on along the
+        lane) keep their way.  Returns them, or None when the gap is there."""
+        out: Set[str] = set()
+        for o in agents:
+            if o.id == a.id or not o.route:
+                continue
+            k = max(0, min(o.progress, len(o.route) - 1))
+            ahead = o.route[k:k + 8]
+            if target not in ahead:
+                continue
+            t = ahead.index(target)
+            # on the target node, or coming to it along the lane (not over
+            # the same crossover)
+            if t == 0 or ahead[t - 1] in zone:
+                out.add(o.id)
+        return out or None
 
     # ------------------------------------------------------------- helpers
     def nodes_owned_by_others(self, robot_id: str) -> Set[int]:

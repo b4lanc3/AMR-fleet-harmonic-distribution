@@ -36,7 +36,10 @@ traffic:
   two_way_cost_factor: 1.10  # planner penalty for single two-way lanes
   yield_bay_spacing: 14.0    # automatic yield bays every N metres (dual lanes)
   yield_bay_clearance: 0.75  # obstacle clearance required around a yield bay
-  crossover_spacing: 20.0    # U-turn crossovers between the two lanes of a dual aisle every N m (0: none)
+  crossover_spacing: 2.0     # lane-to-lane crossovers on the dual aisles every N m: 2 = every lane
+                             # node, a robot turns across anywhere (0: none)
+  crossover_cost: 8.0        # s added per crossing when planning: only when it clearly saves time
+  crossover_gap: 8.0         # m: a turning robot waits until no robot on the target lane is this close
 
 # Aisles. type: dual   -> two one-way lanes "<id>+" (from->to) and "<id>-" (to->from)
 #         type: single -> one two-way lane "<id>" (narrow aisle with yield bays)

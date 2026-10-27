@@ -20,11 +20,14 @@ const LINE_BADGE = {
 };
 const ZONE_VI = {
   A: 'Khu A · Kho linh kiện', B: 'Khu B · Dây chuyền sản xuất', C: 'Khu C · Dây chuyền đóng gói',
-  D: 'Khu D · Kho thành phẩm', CHG: 'Trạm sạc (5 dock)', PK: 'Bãi đỗ', PK2: 'Bãi đỗ',
+  D: 'Khu D · Kho thành phẩm', G: 'Khu G · Cổng xuất hàng', CHG: 'Trạm sạc (5 dock)', PK: 'Bãi đỗ', PK2: 'Bãi đỗ',
 };
 // where the zone names are drawn (free floor between racks / lines), metres
-const LABEL_AT = { A: [20.8, 53.25], B: [74.5, 49.0], C: [74.5, 20.5], D: [20.8, 22.75], CHG: [72.0, 37.6] };
-const TASK_VI = { KIT_DELIVERY: 'Linh kiện', BOX_TRANSFER: 'Thùng SP', FG_DELIVERY: 'Thành phẩm', MANUAL: 'Thủ công' };
+const LABEL_AT = { A: [20.8, 53.25], B: [74.5, 49.0], C: [74.5, 20.5], D: [20.8, 22.75], G: [20.0, 1.4], CHG: [72.0, 37.6] };
+const TASK_VI = {
+  KIT_DELIVERY: 'Linh kiện', FG_STORE: 'Nhập kho', FG_PICK: 'Xuất kho', SHIPMENT: 'Xuất hàng',
+  MANUAL: 'Thủ công',
+};
 const TASK_STATUS_VI = {
   QUEUED: 'Chờ robot', NEXT: 'Đã xếp (task kế)', ASSIGNED: 'Đã giao', TO_PICKUP: 'Đi lấy',
   LOADING: 'Nhận hàng', IN_TRANSIT: 'Đang chở', UNLOADING: 'Trả hàng',
@@ -147,8 +150,11 @@ function renderKpis() {
   const tiles = [
     ['Robot online', `${online}/${s.robots.length}`, `${working} robot đang làm task`],
     ['Task hoàn thành', s.tasks_completed, `${queued} task chờ robot`],
-    ['Thành phẩm nhập kho', p.finished_stored ?? 0, `${p.products_made ?? 0} SP đã sản xuất`],
-    ['Thông lượng', `${Math.round(p.throughput_per_hour ?? 0)}`, 'thành phẩm / giờ'],
+    ['Đã xuất hàng', p.products_shipped ?? 0,
+     `${p.cartons_shipped ?? 0} thùng · ${p.trucks_departed ?? 0} xe tải · ${p.products_made ?? 0} SP đã SX`],
+    ['Kho thành phẩm', `${p.warehouse_stock ?? 0}/${p.warehouse_capacity ?? 0}`,
+     `thùng · ${p.cartons_stored ?? 0} nhập · ${p.cartons_picked ?? 0} xuất đi đóng gói`],
+    ['Thông lượng', `${Math.round(p.throughput_per_hour ?? 0)}`, 'SP xuất hàng / giờ'],
     ['Tránh nhau (không dừng)', s.pass_maneuvers ?? 0,
      `${s.unplanned_stops ?? 0} lần dừng giữa đường (${((s.unplanned_stops ?? 0) / Math.max(s.fleet_km ?? 0, 0.05)).toFixed(1)}/km) · ${s.yield_maneuvers} lần nhường`],
     ['Trạm sạc', `${inUse}/${s.charger_ids.length}`, `${s.charger_queue.length} robot chờ sạc`],
@@ -244,8 +250,17 @@ function renderLines() {
   for (const ln of lines) {
     if (ln.line_type === 'supply') continue;
     const [role, icon, text] = LINE_BADGE[ln.status] || ['info', '•', ln.status];
-    if (ln.line_type === 'storage') {
-      out.push(`<div class="line"><span class="name">${esc(ln.line_id)} · Kho thành phẩm</span>${badge('info', '▣', `${ln.input_buffer} SP`)}</div>`);
+    if (ln.line_type === 'warehouse') {
+      const st = ln.status === 'BLOCKED' ? badge('critical', '■', 'Kho đầy')
+        : ln.status === 'STARVED' ? badge('warning', '○', 'Kho trống') : badge('good', '▣', 'Sẵn hàng');
+      out.push(`<div class="line"><span class="name">Kho thành phẩm (D)</span>${st}
+        <div class="meta"><span>Tồn ${ln.input_buffer}/${ln.input_capacity} thùng${ln.inbound ? ` +${ln.inbound} đang nhập` : ''}</span>
+        <span>${ln.output_buffer} thùng đang xuất</span><span>Đã nhập <b>${ln.produced}</b></span></div></div>`);
+      continue;
+    }
+    if (ln.line_type === 'gate') {
+      out.push(`<div class="line"><span class="name">${esc(ln.line_id)} · Cổng xuất hàng</span>${badge('info', '🚚', `${ln.produced} xe đã đi`)}
+        <div class="meta"><span>Xe đang xếp ${meter(ln.input_buffer, ln.input_capacity, 0)} ${ln.input_buffer}/${ln.input_capacity} thùng</span></div></div>`);
       continue;
     }
     const kind = ln.line_type === 'production' ? 'Sản xuất' : 'Đóng gói';

@@ -121,6 +121,7 @@ class FleetParams:
     # the throughput with 4-5 robots (the line buffers absorb it, shorter
     # total travel wins) -> 0: optimal matching on travel time + task priority
     w_late: float = 0.0
+    w_priority: float = 60.0           # s of travel a task priority level is worth
     station_handover: bool = False     # Gazebo: the station arms end loading / unloading
     handover_timeout: float = 30.0     # s: give up waiting for the arm
 
@@ -807,7 +808,7 @@ class FleetCore:
                     eta += 15.0
                 arrive = eta + prod.load_time + leg[t.id]
                 late = max(0.0, arrive - deadline[t.id])
-                row.append(eta + self.p.w_late * late - 60.0 * t.priority)
+                row.append(eta + self.p.w_late * late - self.p.w_priority * t.priority)
             cost.append(row)
         # the cheapest pairs: a robot about to finish may serve a task sooner
         rest = []
@@ -815,7 +816,7 @@ class FleetCore:
         for i, j in hungarian(cost):
             t, r = tasks[j], robots[i]
             matched.add(t.id)
-            eta = cost[i][j] + 60.0 * t.priority
+            eta = cost[i][j] + self.p.w_priority * t.priority
             if self._busy_eta(t) + 3.0 < eta:
                 rest.append(t)
                 continue

@@ -559,11 +559,17 @@ def mark_passing_nodes(layout: dict, graph: TrafficGraph) -> None:
 # with 3 slots; a loader arm moves every product between the open carton on
 # the pedestal and the belt; spent cartons go to (input) / new ones come from
 # (output) a stack of folded cartons.  The line end is CELL_BELT_V away.
-CELL_SLOTS = ((0.75, 1.10), (0.75, 1.75), (0.75, 2.40))
-CELL_ARM = (-0.55, 1.25)
-CELL_LOADER = (0.12, 2.45)
-CELL_STACK = (-1.20, 2.00)
-CELL_RECT = (-1.55, 0.78, 1.12, 2.90)       # u0, v0, u1, v1
+# The 3 slots form a row across the cell, parallel to the lane: the station
+# arm stands on the AMR side of the row, the (smaller) loader arm on the belt
+# side, so each arm works in its own half of the cell and they only meet over
+# the row - never over the same slot (the loader works on the open carton,
+# the station arm on the others).  Both swing with the tool pulled in close
+# to their base (FactoryLines); tools/cell_clearance.py checks the gap.
+CELL_SLOTS = ((-0.90, 2.10), (0.0, 2.10), (0.90, 2.10))
+CELL_ARM = (0.0, 0.95)
+CELL_LOADER = (0.0, 2.95)
+CELL_STACK = (-1.45, 0.95)
+CELL_RECT = (-1.80, 0.65, 1.30, 3.25)       # u0, v0, u1, v1
 CELL_BELT_V = 3.65                          # loader <-> belt hand-off point
 PEDESTAL_TOP = 0.62
 BELT_TOP = 0.89
@@ -594,7 +600,9 @@ def station_objects(layout: dict, graph: TrafficGraph) -> List[dict]:
     format as layout['objects'] (axis aligned rect) plus 'yaw', 'station',
     the service slot and the lane frame ('dir', 'right')."""
     out = []
-    kinds = {'kit_rack': (0.9, 0.55, 1.2), 'storage_table': (1.0, 0.6, 0.7)}
+    kinds = {'kit_rack': (0.9, 0.55, 1.2), 'storage_table': (1.0, 0.6, 0.7),
+             'wh_inbound': (1.2, 0.7, 0.62), 'wh_outbound': (1.2, 0.7, 0.62),
+             'ship_dock': (1.4, 0.8, 0.62)}
     lanes = getattr(graph, 'lanes', {})
     for st in layout.get('stations', []) or []:
         sn = graph.stations.get(st['id'])

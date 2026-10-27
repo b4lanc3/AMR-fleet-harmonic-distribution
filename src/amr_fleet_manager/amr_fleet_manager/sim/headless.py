@@ -46,7 +46,7 @@ class Metrics:
     sim_time: float = 0.0
     wall_time: float = 0.0
     tasks_completed: int = 0
-    finished_stored: int = 0
+    products_shipped: int = 0
     products_made: int = 0
     yields: int = 0
     deadlocks: int = 0
@@ -101,7 +101,7 @@ class Metrics:
 
     def report(self) -> str:
         return (f'sim {self.sim_time / 60:.1f} min in {self.wall_time:.1f}s | tasks {self.tasks_completed} '
-                f'| stored {self.finished_stored} | made {self.products_made} '
+                f'| shipped {self.products_shipped} | made {self.products_made} '
                 f'| thr {self.throughput_per_hour:.0f}/h | yields {self.yields} '
                 f'| deadlocks {self.deadlocks} | reroutes {self.reroutes} '
                 f'| collisions {self.collisions} | min dist {self.min_distance:.2f} m '
@@ -251,7 +251,7 @@ class HeadlessSim:
         m.sim_time = self.t
         m.wall_time = wall
         m.tasks_completed = self.fleet.tasks.completed
-        m.finished_stored = self.fleet.production.finished_stored
+        m.products_shipped = self.fleet.production.products_shipped
         m.products_made = self.fleet.production.products_made
         m.yields = self.fleet.yields
         m.deadlocks = self.fleet.deadlocks

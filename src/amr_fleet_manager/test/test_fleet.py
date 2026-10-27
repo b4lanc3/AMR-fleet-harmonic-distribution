@@ -9,7 +9,7 @@ def test_headless_fleet_is_safe_and_productive(layout):
     m = sim.run(12 * 60)
     assert m.collisions == 0, m.collision_pairs
     assert m.tasks_completed >= 10
-    assert m.finished_stored > 0
+    assert m.products_shipped > 0
     assert m.max_stall < 150.0, (m.max_stall, m.max_stall_robot)
 
 

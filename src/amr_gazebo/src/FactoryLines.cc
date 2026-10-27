@@ -80,9 +80,14 @@ constexpr double kWaitTimeout = 14.0;    // s waiting for the AMR's lift
 constexpr double kAtSlot = 0.35;         // AMR on the service slot [m]
 constexpr double kStill = 0.02;          // m per check: AMR stands still
 constexpr double kSync = 2.0;            // s a carton count may differ from the MES
-constexpr double kRender = 1.0 / 40.0;   // s between two pose updates of the products
+constexpr double kRender = 1.0 / 120.0;  // s between two pose updates of the products (faster
+                                         // than the GUI: no frame shows a product standing still)
 constexpr double kWall = 0.015;          // carton wall / floor thickness
 constexpr int kSlots = 3;
+constexpr double kMatch = 1.5;           // s: a product of the MES and of the system are the same
+constexpr double kDrift = 0.3;           // s: a larger lag / lead behind the MES is caught up ...
+constexpr double kCatchUp = 3.0;         // ... within about this time ...
+constexpr double kMaxRate = 0.25;        // ... running at most this much faster / slower
 
 double Smooth(double t)
 {
@@ -129,6 +134,8 @@ struct Step
 struct Arm
 {
   Vector3d base;
+  double k{1.0};                  // size of the arm (link lengths x k)
+  double safe{0.5};               // tool radius around the base while the turret turns
   Entity turret{kNullEntity}, upper{kNullEntity}, fore{kNullEntity}, tool{kNullEntity};
   Tip home, cur, from;
   std::deque<Step> steps;
@@ -182,6 +189,7 @@ struct Line
   bool run{true};
   int ib{0}, open{0}, fill{0}, ob{0};
   std::vector<double> ages;
+  double rate{0.0};                           // catch-up: ages advance at (1 + rate) x sim time
 };
 
 struct LineMsg
@@ -219,6 +227,26 @@ public:
     this->l3 = get("l3", this->l3);
     this->toolLen = get("tool", this->toolLen);
     this->deckTop = get("deck_top", this->deckTop);
+    this->loaderScale = get("loader_scale", this->loaderScale);
+    this->swingMin = get("swing_min", this->swingMin);
+    if (elem->HasElement("safe_rho"))
+    {
+      const auto v = Numbers(elem->Get<std::string>("safe_rho"));
+      if (v.size() == 2)
+      {
+        this->safeArm = v[0];
+        this->safeLoader = v[1];
+      }
+    }
+    if (elem->HasElement("loader_home"))
+    {
+      const auto v = Numbers(elem->Get<std::string>("loader_home"));
+      if (v.size() == 2)
+      {
+        this->loaderHomeRho = v[0];
+        this->loaderHomeZ = v[1];
+      }
+    }
     if (elem->HasElement("carton"))
       this->carton = elem->Get<Vector3d>("carton");
     std::string topic = "/factory/line_state";
@@ -268,15 +296,21 @@ public:
         for (auto s = e->FindElement("slot"); s && k < kSlots; s = s->GetNextElement("slot"))
           end.slots[k++] = s->Get<Vector3d>();
         end.stack = e->Get<Vector3d>("stack");
-        // homes: station arm above the deck <-> first slot, loader above slot <-> belt
-        const Vector3d &belt = in ? line.b0 : line.b1;
+        end.arm.safe = this->safeArm;
+        end.loader.k = this->loaderScale;
+        end.loader.safe = this->safeLoader;
+        // homes: station arm above the deck <-> first slot, loader pulled in
+        // towards the middle slot (same as generate_world loader_home)
         const Vector3d mid((end.service.X() + end.slots[0].X()) / 2.0,
                            (end.service.Y() + end.slots[0].Y()) / 2.0, 1.25);
         end.arm.home = this->ToTip(end.arm, mid, end.yaw);
         end.arm.cur = end.arm.home;
-        const Vector3d lm((end.slots[1].X() + belt.X()) / 2.0, (end.slots[1].Y() + belt.Y()) / 2.0,
-                          1.3);
-        end.loader.home = this->ToTip(end.loader, lm, end.yaw);
+        Vector3d toSlot = end.slots[1] - end.loader.base;
+        toSlot.Z(0.0);
+        toSlot = toSlot.Length() > 1e-6 ? toSlot.Normalized() : Vector3d(1, 0, 0);
+        const Vector3d lm = end.loader.base + toSlot * this->loaderHomeRho;
+        end.loader.home = this->ToTip(end.loader, Vector3d(lm.X(), lm.Y(), this->loaderHomeZ),
+                                      end.yaw);
         end.loader.cur = end.loader.home;
       }
       this->lines.push_back(std::move(line));
@@ -302,7 +336,7 @@ public:
     {
       if (line.run)
         for (auto &a : line.ages)
-          a = std::min(a + dt, line.tLoad + line.tBelt + line.tDrop - 1e-3);
+          a = std::min(a + dt * (1.0 + line.rate), line.tLoad + line.tBelt + line.tDrop - 1e-3);
     }
     if (now - this->lastScan >= 0.1)
     {
@@ -383,14 +417,50 @@ private:
       if (it == msgs.end())
         continue;
       const LineMsg &m = it->second;
-      line.have = true;
       line.run = m.run;
       line.ib = m.ib;
       line.open = m.open;
       line.fill = m.fill;
       line.ob = m.ob;
-      line.ages = m.ages;
+      this->MergeAges(line, m.ages);
     }
+  }
+
+  // The products keep their own clock (advanced every step): a message of
+  // the MES adds the new products and drops the ones it has packed; when the
+  // products drift away from the MES the line runs a little faster / slower
+  // until they agree again - they never stop or move back.  Replacing the ages
+  // by the (always a bit late) message would make every product jump back 4
+  // times a second.
+  void MergeAges(Line &_line, const std::vector<double> &_mes)
+  {
+    if (!_line.have || _line.ages.empty())
+    {
+      _line.ages = _mes;
+      _line.have = true;
+      return;
+    }
+    std::vector<double> out;
+    out.reserve(_mes.size());
+    std::size_t i = 0;                      // both lists: oldest first
+    double err = 0.0;
+    int matched = 0;
+    for (double a : _mes)
+    {
+      while (i < _line.ages.size() && _line.ages[i] > a + kMatch)
+        ++i;                                // packed by the MES: gone
+      if (i < _line.ages.size() && std::abs(_line.ages[i] - a) <= kMatch)
+      {
+        err += a - _line.ages[i];
+        ++matched;
+        out.push_back(_line.ages[i++]);
+      }
+      else
+        out.push_back(a);                   // started since the last message
+    }
+    _line.ages.swap(out);
+    err = matched ? err / matched : 0.0;
+    _line.rate = std::abs(err) < kDrift ? 0.0 : std::clamp(err / kCatchUp, -kMaxRate, kMaxRate);
   }
 
   // product in the pick phase of the input loader: not yet taken out of the carton
@@ -706,8 +776,7 @@ private:
       // shortest swing around the turret; tool yaw modulo pi (the carton is symmetric)
       arm.from.az = s.to.az - WrapPi(s.to.az - arm.cur.az);
       arm.from.yaw = s.to.yaw - (WrapPi(2.0 * (s.to.yaw - arm.cur.yaw)) / 2.0);
-      const double arc = std::hypot(0.5 * (arm.from.rho + s.to.rho) * (s.to.az - arm.from.az),
-                                    std::hypot(s.to.rho - arm.from.rho, s.to.z - arm.from.z));
+      const double arc = this->PathLength(arm, arm.from, s.to);
       arm.dur = arc < 1e-3 ? 0.0 : std::max(0.5, arc / kSpeed);
       arm.t = 0.0;
       arm.waited = 0.0;
@@ -717,7 +786,7 @@ private:
     if (arm.t < arm.dur)
     {
       arm.t = std::min(arm.dur, arm.t + _dt);
-      arm.cur = this->Lerp(arm.from, s.to, Smooth(arm.t / arm.dur));
+      arm.cur = this->Move(arm, arm.from, s.to, arm.t / arm.dur);
       arm.dirty = true;
       return;
     }
@@ -775,26 +844,96 @@ private:
     return t;
   }
 
+  bool Swings(const Arm &_arm, const Tip &_a, const Tip &_b) const
+  {
+    return std::abs(WrapPi(_b.az - _a.az)) >= this->swingMin &&
+           (_a.rho > _arm.safe || _b.rho > _arm.safe);
+  }
+
+  // length of the three legs of a swinging move (pull in, turn, reach out)
+  void Legs(const Arm &_arm, const Tip &_a, const Tip &_b, double &_l1, double &_l2,
+            double &_l3) const
+  {
+    const double ra = std::min(_a.rho, _arm.safe), rb = std::min(_b.rho, _arm.safe);
+    _l1 = _a.rho - ra;
+    _l2 = std::abs(WrapPi(_b.az - _a.az)) * 0.5 * (ra + rb) + std::abs(rb - ra);
+    _l3 = _b.rho - rb;
+  }
+
+  double PathLength(const Arm &_arm, const Tip &_a, const Tip &_b) const
+  {
+    if (!this->Swings(_arm, _a, _b))
+      return std::hypot(0.5 * (_a.rho + _b.rho) * WrapPi(_b.az - _a.az),
+                        std::hypot(_b.rho - _a.rho, _b.z - _a.z));
+    double l1, l2, l3;
+    this->Legs(_arm, _a, _b, l1, l2, l3);
+    return std::hypot(l1 + l2 + l3, _b.z - _a.z);
+  }
+
+  // tool tip at _k (0..1 of the time) of a move.  A move that turns the
+  // turret far pulls the tool in to the safe radius first, turns, then
+  // reaches out: each arm of a work cell keeps to its own half of the cell
+  // (generate_world SAFE_RHO, checked by tools/cell_clearance.py).  Every
+  // leg starts and ends at rest.
+  Tip Move(const Arm &_arm, const Tip &_a, const Tip &_b, double _k) const
+  {
+    if (!this->Swings(_arm, _a, _b))
+      return this->Lerp(_a, _b, Smooth(_k));
+    double l1, l2, l3;
+    this->Legs(_arm, _a, _b, l1, l2, l3);
+    const double tot = std::max(1e-6, l1 + l2 + l3);
+    const double k1 = l1 / tot, k2 = (l1 + l2) / tot;
+    const double ra = _a.rho - l1, rb = _b.rho - l3;
+    Tip t;
+    t.z = _a.z + Smooth(_k) * (_b.z - _a.z);
+    const double daz = WrapPi(_b.az - _a.az);
+    const double dyaw = WrapPi(2.0 * (_b.yaw - _a.yaw)) / 2.0;       // carton: modulo pi
+    if (_k < k1)
+    {
+      const double u = Smooth(_k / k1);
+      t.az = _a.az;
+      t.rho = _a.rho + u * (ra - _a.rho);
+      t.yaw = _a.yaw;
+    }
+    else if (_k < k2)
+    {
+      const double u = Smooth((_k - k1) / std::max(1e-6, k2 - k1));
+      t.az = _a.az + u * daz;
+      t.rho = ra + u * (rb - ra);
+      t.yaw = _a.yaw + u * dyaw;
+    }
+    else
+    {
+      const double u = k2 < 1.0 ? Smooth((_k - k2) / (1.0 - k2)) : 1.0;
+      t.az = _b.az;
+      t.rho = rb + u * (_b.rho - rb);
+      t.yaw = _a.yaw + dyaw;
+    }
+    return t;
+  }
+
   // link poses for a tool tip (wrist above the tip, tool hanging vertically)
   void Links(const Arm &_arm, const Tip &_t, Pose3d &_turret, Pose3d &_upper, Pose3d &_fore,
              Pose3d &_tool) const
   {
+    const double k = _arm.k;
+    const double a1 = this->a1 * k, d1 = this->d1 * k, l2 = this->l2 * k, l3 = this->l3 * k;
     const double q1 = _t.az;
-    double r = std::max(0.05, _t.rho - this->a1);
-    double z = _t.z + this->toolLen - (_arm.base.Z() + this->d1);
+    double r = std::max(0.05, _t.rho - a1);
+    double z = _t.z + this->toolLen * k - (_arm.base.Z() + d1);
     double d = std::hypot(r, z);
-    const double dmin = std::abs(this->l2 - this->l3) + 1e-3, dmax = this->l2 + this->l3 - 1e-3;
+    const double dmin = std::abs(l2 - l3) + 1e-3, dmax = l2 + l3 - 1e-3;
     const double phi = std::atan2(r, z);          // lean of the shoulder -> wrist line
     d = std::clamp(d, dmin, dmax);
     r = d * std::sin(phi);
     z = d * std::cos(phi);
-    const double cosA = (this->l2 * this->l2 + d * d - this->l3 * this->l3) / (2.0 * this->l2 * d);
+    const double cosA = (l2 * l2 + d * d - l3 * l3) / (2.0 * l2 * d);
     const double q2 = phi - std::acos(std::clamp(cosA, -1.0, 1.0));   // elbow up
-    const double er = this->l2 * std::sin(q2), ez = this->l2 * std::cos(q2);
+    const double er = l2 * std::sin(q2), ez = l2 * std::cos(q2);
     const double q3 = std::atan2(-(z - ez), r - er);                   // forearm down pitch
 
     const Vector3d radial(std::cos(q1), std::sin(q1), 0.0);
-    const Vector3d s = _arm.base + radial * this->a1 + Vector3d(0, 0, this->d1);
+    const Vector3d s = _arm.base + radial * a1 + Vector3d(0, 0, d1);
     const Vector3d e = s + radial * er + Vector3d(0, 0, ez);
     const Vector3d w = s + radial * r + Vector3d(0, 0, z);
     _turret = Pose3d(_arm.base, Quaterniond(0, 0, q1));
@@ -804,11 +943,13 @@ private:
   }
 
   // position of product _k (0..cap-1) in a carton standing on _base (bottom centre)
-  Vector3d Cell(const Vector3d &_base, double _yaw, int _k, double _h) const
+  // (4 columns, cap / 4 rows)
+  Vector3d Cell(const Vector3d &_base, double _yaw, int _k, double _h, int _cap) const
   {
-    const int col = _k % 4, row = (_k / 4) % 3;
+    const int rows = std::max(1, (_cap + 3) / 4);
+    const int col = _k % 4, row = (_k / 4) % rows;
     const double cx = (col - 1.5) * (this->carton.X() - 2 * kWall) / 4.0;
-    const double cy = (row - 1.0) * (this->carton.Y() - 2 * kWall) / 3.0;
+    const double cy = (row - 0.5 * (rows - 1)) * (this->carton.Y() - 2 * kWall) / rows;
     const double c = std::cos(_yaw), s = std::sin(_yaw);
     return {_base.X() + c * cx - s * cy, _base.Y() + s * cx + c * cy, _base.Z() + kWall + _h / 2.0};
   }
@@ -824,7 +965,7 @@ private:
                      this->ToTip(_arm, _place, _yaw), _arm.home};
     for (int i = 0; i < 6; ++i)
       if (_p < kT[i + 1])
-        return this->Lerp(f[i], f[i + 1], Smooth((_p - kT[i]) / (kT[i + 1] - kT[i])));
+        return this->Move(_arm, f[i], f[i + 1], (_p - kT[i]) / (kT[i + 1] - kT[i]));
     return _arm.home;
   }
 
@@ -868,13 +1009,13 @@ private:
       openSlot = this->Find(in, kSpent);
     const Vector3d inBase = openSlot >= 0 ? in.slots[openSlot] : in.slots[0];
     for (int k = 0; k < std::min(_line.open, _line.cap); ++k)
-      put(true, this->Cell(inBase, in.yaw, k, _line.hA), in.yaw);
+      put(true, this->Cell(inBase, in.yaw, k, _line.hA, _line.cap), in.yaw);
     int fillSlot = this->Find(out, kOpen);
     if (fillSlot < 0)
       fillSlot = out.target >= 0 && out.job == Job::Tray ? out.target : 0;
     const Vector3d outBase = out.slots[fillSlot];
     for (int k = 0; k < std::min(_line.fill, _line.cap); ++k)
-      put(false, this->Cell(outBase, out.yaw, k, _line.hB), out.yaw);
+      put(false, this->Cell(outBase, out.yaw, k, _line.hB, _line.cap), out.yaw);
 
     bool inBusy = false, outBusy = false;
     const double lead = _line.tLoad + _line.tBelt + _line.tDrop;
@@ -886,7 +1027,7 @@ private:
       {
         const double p = a / std::max(1e-3, _line.tLoad);
         const int cell = std::min(_line.open, _line.cap - 1);
-        const Vector3d pick = this->Cell(inBase, in.yaw, cell, _line.hA);
+        const Vector3d pick = this->Cell(inBase, in.yaw, cell, _line.hA, _line.cap);
         const Vector3d pickTip = pick + Vector3d(0, 0, _line.hA / 2.0);
         const Vector3d placeTip = _line.b0 + Vector3d(0, 0, _line.hA);
         if (!inBusy)
@@ -915,7 +1056,7 @@ private:
         const double q = std::min(1.0, (a - _line.tLoad - _line.tBelt) /
                                   std::max(1e-3, lead - _line.tLoad - _line.tBelt));
         const int cell = std::min(_line.fill, _line.cap - 1);
-        const Vector3d drop = this->Cell(outBase, out.yaw, cell, _line.hB);
+        const Vector3d drop = this->Cell(outBase, out.yaw, cell, _line.hB, _line.cap);
         const Vector3d pickTip = _line.b1 + Vector3d(0, 0, _line.hB);
         const Vector3d dropTip = drop + Vector3d(0, 0, _line.hB / 2.0);
         if (!outBusy)
@@ -1092,6 +1233,8 @@ private:
   }
 
   double a1{0.10}, d1{0.30}, l2{0.85}, l3{0.90}, toolLen{0.19}, deckTop{0.515};
+  double loaderScale{0.85}, swingMin{0.35}, safeArm{0.5}, safeLoader{0.6};
+  double loaderHomeRho{0.4}, loaderHomeZ{1.25};
   Vector3d carton{0.56, 0.40, 0.22};
   std::vector<Line> lines;
   std::map<std::string, LineMsg> pending;

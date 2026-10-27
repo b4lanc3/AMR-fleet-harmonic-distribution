@@ -6,10 +6,10 @@
 > nhánh [`humble`](../../tree/humble) / [`jazzy`](../../tree/jazzy); hai bản phát triển độc lập.
 
 Mô phỏng **đội 5–8 AMR** vận chuyển nội bộ trong một nhà máy hoàn chỉnh 90 m × 75 m, chạy trên
-**ROS 2 Humble + Gazebo Harmonic** (Ubuntu 22.04), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
+**ROS 2 Jazzy + Gazebo Harmonic** (tương thích Jetty), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
 
-> Nhánh **`lite-humble`**: ROS 2 Humble (Ubuntu 22.04) + Gazebo Harmonic. Bản nhẹ cho ROS 2 Jazzy (Ubuntu 24.04):
-> nhánh [`lite-jazzy`](../../tree/lite-jazzy). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch).
+> Nhánh **`lite-jazzy`**: ROS 2 Jazzy (Ubuntu 24.04) + Gazebo Harmonic. Bản nhẹ cho ROS 2 Humble (Ubuntu 22.04):
+> nhánh [`lite-humble`](../../tree/lite-humble). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch).
 
 * **Nhà máy đầy đủ**: tường panel cách nhiệt, dải cửa sổ, cửa cuộn, cột thép, dầm mái, đèn (có nguồn sáng thật),
   sàn epoxy chia khu và vạch làn, kệ đầy thùng/bin linh kiện, kệ pallet thành phẩm, văn phòng 2 tầng, xe tải ở dock,
@@ -246,41 +246,25 @@ Gazebo: AMCL lệch 8 cm nhưng robot vẫn dừng cách vị trí dock đúng 1
 
 ## 6. Cài đặt
 
-Ubuntu 22.04 + ROS 2 Humble + Gazebo Harmonic (không cần nâng lên 24.04):
+Ubuntu 24.04 + ROS 2 Jazzy (đi kèm Gazebo Harmonic qua `ros_gz`):
 
 ```bash
-# Gazebo Harmonic từ packages.osrfoundation.org
-sudo curl https://packages.osrfoundation.org/gazebo.gpg -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] \
-  http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | \
-  sudo tee /etc/apt/sources.list.d/gazebo-stable.list
-sudo apt update && sudo apt install gz-harmonic
-sudo apt install ros-humble-desktop ros-humble-xacro ros-humble-navigation2 ros-humble-nav2-rviz-plugins \
-     ros-humble-robot-state-publisher python3-colcon-common-extensions
-# ros_gz cho Harmonic: ros-humble-ros-gzharmonic, hoặc build ros_gz nhánh humble với GZ_VERSION=harmonic
-# docking: ros-humble-opennav-docking ros-humble-opennav-docking-msgs, hoặc build opennav_docking nhánh humble
+sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-xacro ros-jazzy-navigation2 \
+     ros-jazzy-nav2-rviz-plugins ros-jazzy-robot-state-publisher python3-colcon-common-extensions
 mkdir -p ~/amr_ws && cd ~/amr_ws
-git clone -b lite-humble https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
-source /opt/ros/humble/setup.bash
+git clone -b lite-jazzy https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
+source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
+ros2 launch amr_bringup bringup.launch.py            # 6 robot, dashboard http://localhost:8081
 ```
 
 `amr_gazebo` biên dịch system C++ `FactoryLines` (work cell, thùng, sản phẩm) và `Pedestrians` (gz-sim 8); hook môi trường tự thêm
 `GZ_SIM_SYSTEM_PLUGIN_PATH` và `GZ_SIM_RESOURCE_PATH` khi `source install/setup.bash`.
 
-Trên Humble: `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi không có gói `*_vendor`, `navigation.launch.py` tự
-đổi tham số `collision_monitor` sang định dạng Nav2 1.1 khi `ROS_DISTRO=humble` (points dạng mảng phẳng,
-`max_points`, một `source_timeout` chung), docking dùng `opennav_docking_msgs` của bản backport. Khác biệt còn lại:
-không có EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
-`collision_monitor_state` (trường `obstacle_stop` trên dashboard luôn false).
+**Ubuntu 22.04 + ROS 2 Humble**: dùng nhánh [`lite-humble`](../../tree/lite-humble).
 
-**Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Lite/run_lite.sh [số robot]`
-(mặc định 6, có cửa sổ Gazebo + RViz, dashboard http://localhost:8081), tắt bằng `~/AMR-Fleet-Lite/stop_lite.sh`
-(chỉ tắt tiến trình của bản nhẹ: biến môi trường `AMR_LITE=1`). Workspace, DDS domain (43), partition Gazebo
-(`amr_lite`) và thư mục world tạm (`/tmp/amr_fleet_lite`) riêng, không đụng tới bản đầy đủ.
-`sim_env.bash` tách DDS của mô phỏng khỏi robot thật (CycloneDDS chỉ trên loopback, `ROS_DOMAIN_ID=43`). GUI Gazebo
-được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
+GUI Gazebo được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
 
 **Work cell ở đầu dây chuyền** (system `amr_factory_lines`): mỗi trạm `*_IN` / `*_OUT` có bệ 3 ô, một tay máy trạm 6
 trục (AMR ↔ bệ) và một tay máy nạp liệu (bệ ↔ băng tải). Tay máy trạm đồng bộ với AMR qua `/<amr>/cargo_lift` và báo

@@ -7,7 +7,8 @@ Topics (global):
   /fleet/snapshot_json  std_msgs/String                 everything as JSON (dashboard)
   /fleet/markers        visualization_msgs/MarkerArray  dynamic RViz markers
   /fleet/static_markers visualization_msgs/MarkerArray  layout (latched)
-  /factory/line_state   std_msgs/String                 "B1=1;B2=0;..." conveyors in Gazebo
+  /factory/line_state   std_msgs/String                 every line, carton and product on the way
+                                                        -> FactoryLines system of Gazebo (4 Hz)
   /map                  nav_msgs/OccupancyGrid          factory map (latched, publish_map:=true;
                                                         with Nav2 the map_server serves /map)
 Per robot (<id> = amr_01 ...):
@@ -17,7 +18,7 @@ Services:
   /fleet/submit_task        amr_fleet_msgs/SubmitTask
   /fleet/set_robot_priority amr_fleet_msgs/SetRobotPriority
   /fleet/pause              std_srvs/SetBool
-  /fleet/demo_head_on       std_srvs/Trigger   (two robots meet head-on on the north aisle)
+  /fleet/demo_head_on       std_srvs/Trigger   (two robots meet head-on on the two-way link lane)
 """
 
 from __future__ import annotations
@@ -124,7 +125,7 @@ class FleetManagerNode(Node):
         if self.publish_map:
             self.map_pub = self.create_publisher(OccupancyGrid, '/map', latched)
         self.layout_pub = self.create_publisher(String, '/fleet/layout_json', latched)
-        # conveyors in Gazebo run only while the MES line is RUNNING
+        # cartons on the pedestals and products on the belts of Gazebo follow the MES
         self.line_pub = self.create_publisher(String, '/factory/line_state', qos)
 
         self.create_service(SubmitTask, '/fleet/submit_task', self._srv_submit)
@@ -139,6 +140,7 @@ class FleetManagerNode(Node):
         self.create_timer(1.0 / gp('state_rate').value, self._publish_state)
         self.create_timer(1.0 / gp('marker_rate').value, self._publish_markers)
         self.create_timer(1.0, self._publish_production)
+        self.create_timer(0.25, self._publish_lines)
         self._publish_static()
         self.get_logger().info(
             f'Fleet manager: {len(ids)} robots, {len(self.graph.nodes)} graph nodes, '
@@ -284,9 +286,9 @@ class FleetManagerNode(Node):
             setattr(msg, k, int(p[k]))
         msg.throughput_per_hour = float(p['throughput_per_hour'])
         self.prod_pub.publish(msg)
-        state = ';'.join(f"{ln['line_id']}={1.0 if ln['status'] == 'RUNNING' else 0.0:.1f}"
-                         for ln in p['lines'] if ln['line_type'] in ('production', 'packaging'))
-        self.line_pub.publish(String(data=state))
+
+    def _publish_lines(self) -> None:
+        self.line_pub.publish(String(data=self.core.production.gz_state()))
 
     def _publish_markers(self) -> None:
         if self._snapshot is None:

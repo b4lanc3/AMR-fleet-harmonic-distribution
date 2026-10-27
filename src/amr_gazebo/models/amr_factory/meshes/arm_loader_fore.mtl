@@ -1,0 +1,16 @@
+newmtl machine_blue
+Ka 0.150 0.380 0.700
+Kd 0.150 0.380 0.700
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl machine_dark
+Ka 0.300 0.320 0.350
+Kd 0.300 0.320 0.350
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+

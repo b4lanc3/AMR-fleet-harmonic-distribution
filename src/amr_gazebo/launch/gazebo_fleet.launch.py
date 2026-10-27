@@ -39,7 +39,7 @@ def _bridge_config(ids, cameras, points, ground_truth):
         return e
 
     cfg = [entry('/clock', '/clock', 'rosgraph_msgs/msg/Clock', 'gz.msgs.Clock', 'GZ_TO_ROS'),
-           # MES line state -> conveyors of the LineAnimator system
+           # MES line state -> work cells and products of the FactoryLines system
            entry('/factory/line_state', '/factory/line_state', 'std_msgs/msg/String',
                  'gz.msgs.StringMsg', 'ROS_TO_GZ'),
            # station arms: "<station>:<amr>" when they took / put the load -> fleet manager

@@ -31,7 +31,7 @@ from typing import Deque, Dict, List, Optional, Sequence, Set, Tuple
 
 from .assign import hungarian
 from .graph import CHARGER, LANE, PARKING, YIELD, TrafficGraph
-from .layout import build_graph
+from .layout import LINE_CELLS, build_graph
 from .production import Production
 from .tasks import (IN_TRANSIT, LOADING as T_LOADING, MANUAL, QUEUED,
                     TO_PICKUP as T_TO_PICKUP, UNLOADING as T_UNLOADING, Task, TaskBook)
@@ -233,7 +233,7 @@ class FleetCore:
         self.layout = layout
         self.g = graph or build_graph(layout)
         self.p = params or FleetParams()
-        self.production = Production(layout.get('process', {}) or {})
+        self.production = Production(layout.get('process', {}) or {}, layout.get('lines'))
         self.tasks = TaskBook()
         self.traffic = TrafficController(self.g, TrafficParams(lookahead=self.p.lookahead))
         self.robots: Dict[str, RobotRecord] = {}
@@ -255,7 +255,7 @@ class FleetCore:
         self.passes = 0
         # stations served by a transfer arm (line inputs / outputs, Gazebo)
         self.arm_stations = {st['id'] for st in layout.get('stations', []) or []
-                             if str(st.get('object', '')).startswith('conveyor')}
+                             if st.get('object') in LINE_CELLS}
         self.unplanned_stops = 0
         self.passing: Dict[frozenset, dict] = {}
         self.deadlocks = 0
@@ -353,6 +353,7 @@ class FleetCore:
             if r.online and r.needs_init:
                 self._init_robot(r)
         if not self.paused and self.p.production:
+            self.production.set_fleet_size(sum(r.online for r in self.robots.values()), now)
             supply = {s: len(b) for s, b in self.station_bookings.items()}
             for t in self.tasks.active():
                 if t.status == QUEUED:
@@ -869,7 +870,7 @@ class FleetCore:
         r.next_task = None
 
     # ============================================================== demo
-    def start_demo_head_on(self, lane: str = 'north') -> Tuple[bool, str]:
+    def start_demo_head_on(self, lane: str = 'link') -> Tuple[bool, str]:
         """Send two idle robots to both ends of a two-way lane, then let them
         drive towards each other at the same time: they detect each other,
         both shift to their right, pass and keep their route without stopping."""
@@ -879,7 +880,9 @@ class FleetCore:
                       key=lambda i: (self.g.nodes[i].x, self.g.nodes[i].y))
         if len(bays) < 3:
             return False, f'Làn {lane} không có đủ yield bay'
-        ends = [bays[0], bays[-1]]
+        ends = self._demo_ends(lane, bays)
+        if ends is None:
+            return False, f'Làn {lane} không có đoạn đủ dài để hai xe tránh nhau'
         free = [r for r in self.robots.values() if self._available(r) and r.state != CHARGING]
         if len(free) < 2:
             return False, 'Cần ít nhất 2 robot rảnh (đang đỗ) để chạy demo'
@@ -896,6 +899,37 @@ class FleetCore:
         self.event(WARN, 'YIELD', '', f'Demo đối đầu: {picked[0].id} và {picked[1].id} ra hai đầu '
                                       f'làn 2 chiều "{lane}" rồi chạy ngược chiều nhau')
         return True, f'{picked[0].id}, {picked[1].id}'
+
+    def _demo_ends(self, lane: str, bays: List[int], half: float = 5.0) -> Optional[List[int]]:
+        """The two yield bays farthest apart whose midpoint (where the robots
+        meet) lies on a stretch of passing nodes: no intersection within
+        `half` metres, where the robots could not shift aside."""
+        lanes = getattr(self.g, 'lanes', {}) or {}
+        ln = lanes.get(lane)
+        if ln is None:
+            return [bays[0], bays[-1]]
+        nodes = [n for n in self.g.nodes if n.kind == LANE and n.lanes == [lane]]
+
+        def along(n) -> float:
+            return ln.project((n.x, n.y))
+
+        pos = sorted((along(n), n.idx in self.g.pass_nodes) for n in nodes)
+        gap = float((self.layout.get('traffic', {}) or {}).get('node_spacing', 2.0)) + 0.5
+
+        def passable(t: float) -> bool:
+            near = [p for p in pos if abs(p[0] - t) <= half]
+            if not near or not all(ok for _, ok in near):
+                return False
+            ts = [t - half] + [p[0] for p in near] + [t + half]
+            return all(b - a <= gap for a, b in zip(ts, ts[1:]))
+
+        best, best_d = None, 0.0
+        for i, a in enumerate(bays):
+            for b in bays[i + 1:]:
+                ta, tb = along(self.g.nodes[a]), along(self.g.nodes[b])
+                if abs(tb - ta) > best_d and passable((ta + tb) / 2):
+                    best, best_d = [a, b] if ta < tb else [b, a], abs(tb - ta)
+        return best
 
     def _run_demo(self) -> None:
         d = self.demo

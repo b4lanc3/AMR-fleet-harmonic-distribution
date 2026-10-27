@@ -1,26 +1,30 @@
 """Simulated MES: production lines, packaging lines and storage.
 
-Material flow (one transport unit per AMR trip):
+Material flow (one carton per AMR trip):
 
-  A_i (kit of components) --KIT_DELIVERY-->  B_k input buffer
-  B_k produces 1 product / cycle_time, products are put into a box;
-      full box -> B_k output buffer
-  B_k output (box)        --BOX_TRANSFER-->  C_m input buffer
-  C_m packages every product of the box (pack_time each) onto a pallet;
-      full pallet -> C_m output buffer
-  C_m output (pallet)     --FG_DELIVERY-->   D_j finished goods storage
+  A_i (carton with a kit of components) --KIT_DELIVERY-->  B_k input pedestal
+  B_k starts one product every cycle_time (takt) from the open kit carton: the
+      loader arm puts the component on the belt, the line machines it, the
+      loader arm at the end packs the product into the carton on the output
+      pedestal (lead time = loader + belt + drop); full carton -> output buffer
+  B_k output (carton)     --BOX_TRANSFER-->  C_m input pedestal
+  C_m wraps every product of the carton the same way (pack_time takt) into a
+      finished goods carton; full carton -> output buffer
+  C_m output (carton)     --FG_DELIVERY-->   D_j finished goods storage
 
 The model raises task requests when buffers need service and escalates the
-task priority when a line is about to starve or block.
+task priority when a line is about to starve or block.  With active_lines:
+auto only as many lines run as the fleet can serve (west lines first).
 """
 
 from __future__ import annotations
 
 import math
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
+from .layout import line_lead_time
 from .tasks import BOX_TRANSFER, FG_DELIVERY, KIT_DELIVERY, Task
 
 RUNNING = 'RUNNING'
@@ -28,60 +32,90 @@ STARVED = 'STARVED'
 BLOCKED = 'BLOCKED'
 IDLE = 'IDLE'
 
+AUTO_DOWN_DELAY = 20.0      # s the fleet must stay smaller before lines are switched off
+
 
 @dataclass
-class ProductionLine:
-    id: str
-    name: str
-    input: str
-    output: str
-    cycle_time: float
-    products_per_kit: int
-    box_capacity: int
-    input_capacity: int
-    output_capacity: int
-    target_input: int
+class Flow:
+    """Pipeline shared by both line kinds: an open input carton (`open_left`
+    products), products on the way (ages since their start, oldest first) and
+    the output carton being filled."""
+    takt: float = 20.0
+    lead: float = 100.0
+    t_load: float = 5.0
+    t_belt: float = 90.0
+    items: List[float] = field(default_factory=list)
+    progress: float = 0.0       # time since the last product start
+    active: bool = True
+
+    def arrivals(self) -> List[float]:
+        """Seconds until the products on the way reach the output carton."""
+        return [max(0.0, self.lead - a) for a in self.items]
+
+
+@dataclass
+class ProductionLine(Flow):
+    id: str = ''
+    name: str = ''
+    input: str = ''
+    output: str = ''
+    cycle_time: float = 22.0
+    products_per_kit: int = 12
+    box_capacity: int = 12
+    input_capacity: int = 2
+    output_capacity: int = 2
+    target_input: int = 2
     input_kits: int = 1
-    material: int = 0           # products that can still be made from the opened kit
+    material: int = 0           # products still in the open kit carton
     box_fill: int = 0
     out_boxes: int = 0
     inbound: int = 0            # kit deliveries created and not yet unloaded
     outbound: int = 0           # box transfers created and not yet picked
-    progress: float = 0.0
     produced: int = 0
     status: str = STARVED
     busy_time: float = 0.0
 
 
 @dataclass
-class PackagingLine:
-    id: str
-    name: str
-    input: str
-    output: str
-    pack_time: float
-    input_capacity: int
-    output_capacity: int
+class PackagingLine(Flow):
+    id: str = ''
+    name: str = ''
+    input: str = ''
+    output: str = ''
+    pack_time: float = 21.0
+    input_capacity: int = 2
+    output_capacity: int = 2
     input_boxes: int = 0
-    current: int = 0            # unpacked products of the box being processed
-    pallet_fill: int = 0
-    pallet_capacity: int = 6
+    current: int = 0            # products still in the open input carton
+    pallet_fill: int = 0        # products in the finished goods carton being filled
+    pallet_capacity: int = 12
     out_pallets: int = 0
     inbound: int = 0
     outbound: int = 0
-    progress: float = 0.0
     packaged: int = 0
     status: str = STARVED
     busy_time: float = 0.0
 
 
 class Production:
-    def __init__(self, process: dict) -> None:
+    def __init__(self, process: dict, lines: Optional[List[dict]] = None) -> None:
         self.load_time = float(process.get('load_time', 8.0))
         self.unload_time = float(process.get('unload_time', 8.0))
         self.supply = list(process.get('supply_stations', []))
         self.storage = list(process.get('storage_stations', []))
         self.storage_capacity = int(process.get('storage_capacity', 240))
+        self.auto_lines = str(process.get('active_lines', 'all')).lower() == 'auto'
+        self.robots_per_line = max(0.1, float(process.get('robots_per_line', 2.0)))
+        geo = {ln['id']: ln for ln in lines or []}
+
+        def timing(fl: Flow, lid: str, takt: float) -> None:
+            fl.takt = takt
+            if lid in geo:
+                fl.t_load, fl.t_belt, drop = line_lead_time(process, geo[lid])
+            else:           # no geometry: the old fixed cycle (lead = takt)
+                fl.t_load, fl.t_belt, drop = 0.0, takt, 0.0
+            fl.lead = fl.t_load + fl.t_belt + drop
+
         self.lines: Dict[str, ProductionLine] = {}
         for c in process.get('production_lines', []):
             ln = ProductionLine(
@@ -89,9 +123,10 @@ class Production:
                 cycle_time=float(c.get('cycle_time', 12.0)),
                 products_per_kit=int(c.get('products_per_kit', 6)),
                 box_capacity=int(c.get('box_capacity', 6)),
-                input_capacity=int(c.get('input_capacity', 3)),
+                input_capacity=int(c.get('input_capacity', 2)),
                 output_capacity=int(c.get('output_capacity', 2)),
                 target_input=int(c.get('target_input', 2)))
+            timing(ln, ln.id, ln.cycle_time)
             self.lines[ln.id] = ln
         box_cap = max([ln.box_capacity for ln in self.lines.values()] or [6])
         self.packers: Dict[str, PackagingLine] = {}
@@ -102,6 +137,7 @@ class Production:
                 input_capacity=int(c.get('input_capacity', 2)),
                 output_capacity=int(c.get('output_capacity', 2)),
                 pallet_capacity=int(c.get('pallet_capacity', box_cap)))
+            timing(pk, pk.id, pk.pack_time)
             self.packers[pk.id] = pk
         # the factory is already running when the simulation starts: staggered
         # work in progress so every line is busy from t = 0
@@ -110,9 +146,11 @@ class Production:
             for i, ln in enumerate(self.lines.values()):
                 ln.material = ln.products_per_kit // 2
                 ln.box_fill = (ln.box_capacity * (i + 1)) // (n + 1)
+                ln.items = self._wip(ln)
             for pk in self.packers.values():
                 pk.input_boxes = min(1, pk.input_capacity)
                 pk.current = (pk.pallet_capacity * 2) // 3
+                pk.items = self._wip(pk)
         self.stored: Dict[str, int] = {d: 0 for d in self.storage}
         self.shipped = 0
         self.elapsed = 0.0
@@ -123,6 +161,49 @@ class Production:
         self._rr_storage = 0
         self.events: List[str] = []
         self.supply_picked: Dict[str, int] = {a: 0 for a in self.supply}
+        self.fleet_size = -1
+        self._active_n = len(self.lines)
+        self._down_since: Optional[float] = None
+
+    @staticmethod
+    def _wip(fl: Flow) -> List[float]:
+        """Products already on the way, one every takt (oldest first)."""
+        n = int(fl.lead // fl.takt)
+        return [fl.lead - (k + 0.5) * fl.takt for k in range(n) if fl.lead - (k + 0.5) * fl.takt > 0]
+
+    # ------------------------------------------------------- active lines
+    def set_fleet_size(self, robots: int, now: float) -> None:
+        """active_lines: auto - run ceil(robots / robots_per_line) production
+        lines and as many packaging lines, west first.  More robots switch lines
+        on at once; fewer switch them off after AUTO_DOWN_DELAY (a robot that
+        reconnects does not stop a line)."""
+        if not self.auto_lines or robots <= 0:
+            return
+        want = min(len(self.lines), max(1, math.ceil(robots / self.robots_per_line - 1e-9)))
+        if self.fleet_size < 0 or want > self._active_n:
+            self._down_since = None
+            self._apply_active(want)
+        elif want < self._active_n:
+            if self._down_since is None:
+                self._down_since = now
+            elif now - self._down_since >= AUTO_DOWN_DELAY:
+                self._down_since = None
+                self._apply_active(want)
+        else:
+            self._down_since = None
+        self.fleet_size = robots
+
+    def _apply_active(self, n: int) -> None:
+        if n != self._active_n:
+            self.events.append(f'Đội AMR thay đổi → chạy {n}/{len(self.lines)} dây chuyền')
+            self._active_n = n
+        for group in (self.lines, self.packers):
+            for i, fl in enumerate(sorted(group.values(), key=lambda f: (_order(f.id)))):
+                fl.active = i < n
+
+    @property
+    def active_lines(self) -> int:
+        return sum(ln.active for ln in self.lines.values())
 
     # ----------------------------------------------------------- simulate
     def update(self, dt: float, now: float, supply_load: Dict[str, int],
@@ -135,53 +216,81 @@ class Production:
             self._run_packer(pk, dt)
         return self._requests(now, supply_load, storage_load)
 
+    @staticmethod
+    def _flow(fl: Flow, dt: float, out_full: bool, can_close: bool, close, deliver,
+              has_material, start) -> Tuple[str, bool]:
+        """One step of a line: close the full output carton when there is room,
+        stop the whole line while the next product cannot be packed, move the
+        products, start a new one every takt.  Returns (status, fed): fed =
+        the line had material for the whole step (busy time)."""
+        if out_full and can_close:
+            close()
+            out_full = False
+        if fl.items and fl.items[0] + dt >= fl.lead and out_full:
+            return BLOCKED, False
+        fl.items = [a + dt for a in fl.items]
+        while fl.items and fl.items[0] >= fl.lead:
+            fl.items.pop(0)
+            deliver()
+        fed = False
+        if has_material():
+            fed = True
+            fl.progress += dt
+            if fl.progress >= fl.takt:
+                fl.progress -= fl.takt
+                start()
+                fl.items.append(fl.progress)
+        if fed or fl.items:
+            return RUNNING, fed
+        return (STARVED if fl.active else IDLE), False
+
     def _run_line(self, ln: ProductionLine, dt: float) -> None:
-        if ln.box_fill >= ln.box_capacity:
-            if ln.out_boxes < ln.output_capacity:
-                ln.out_boxes += 1
-                ln.box_fill = 0
-            else:
-                ln.status = BLOCKED
-                return
-        if ln.material <= 0:
-            if ln.input_kits > 0:
-                ln.input_kits -= 1
-                ln.material = ln.products_per_kit
-            else:
-                ln.status = STARVED
-                return
-        ln.status = RUNNING
-        ln.busy_time += dt
-        ln.progress += dt
-        if ln.progress >= ln.cycle_time:
-            ln.progress -= ln.cycle_time
-            ln.material -= 1
+        def close():
+            ln.out_boxes += 1
+            ln.box_fill = 0
+
+        def deliver():
             ln.box_fill += 1
             ln.produced += 1
 
+        def has_material():
+            return ln.material > 0 or ln.input_kits > 0
+
+        def start():
+            if ln.material <= 0:
+                ln.input_kits -= 1
+                ln.material = ln.products_per_kit
+            ln.material -= 1
+
+        ln.status, fed = self._flow(ln, dt, ln.box_fill >= ln.box_capacity,
+                                    ln.out_boxes < ln.output_capacity, close, deliver,
+                                    has_material, start)
+        if fed:
+            ln.busy_time += dt
+
     def _run_packer(self, pk: PackagingLine, dt: float) -> None:
-        if pk.pallet_fill >= pk.pallet_capacity:
-            if pk.out_pallets < pk.output_capacity:
-                pk.out_pallets += 1
-                pk.pallet_fill = 0
-            else:
-                pk.status = BLOCKED
-                return
-        if pk.current <= 0:
-            if pk.input_boxes > 0:
-                pk.input_boxes -= 1
-                pk.current = self._box_size()
-            else:
-                pk.status = STARVED
-                return
-        pk.status = RUNNING
-        pk.busy_time += dt
-        pk.progress += dt
-        if pk.progress >= pk.pack_time:
-            pk.progress -= pk.pack_time
-            pk.current -= 1
+        def close():
+            pk.out_pallets += 1
+            pk.pallet_fill = 0
+
+        def deliver():
             pk.pallet_fill += 1
             pk.packaged += 1
+
+        def has_material():
+            return pk.current > 0 or pk.input_boxes > 0
+
+        def start():
+            if pk.current <= 0:
+                pk.input_boxes -= 1
+                pk.current = self._box_size()
+            pk.current -= 1
+
+        pk.status, fed = self._flow(pk, dt, pk.pallet_fill >= pk.pallet_capacity,
+                                    pk.out_pallets < pk.output_capacity, close, deliver,
+                                    has_material, start)
+        if fed:
+            pk.busy_time += dt
 
     def _box_size(self) -> int:
         return max([ln.box_capacity for ln in self.lines.values()] or [6])
@@ -190,9 +299,9 @@ class Production:
     def _requests(self, now: float, supply_load: Dict[str, int],
                   storage_load: Dict[str, int]) -> List[Task]:
         out: List[Task] = []
-        # component kits for production lines
+        # component kits for the running production lines
         for ln in self.lines.values():
-            while (ln.input_kits + ln.inbound < ln.target_input
+            while (ln.active and ln.input_kits + ln.inbound < ln.target_input
                    and ln.input_kits + ln.inbound < ln.input_capacity):
                 src = self._pick_supply(supply_load)
                 if src is None:
@@ -205,7 +314,7 @@ class Production:
                 ln.inbound += 1
                 supply_load[src] = supply_load.get(src, 0) + 1
                 out.append(t)
-        # boxes of unpacked products to packaging (fullest line first)
+        # cartons of unpacked products to packaging (fullest line first)
         for ln in sorted(self.lines.values(), key=lambda x: (-x.out_boxes, x.id)):
             while ln.out_boxes - ln.outbound > 0:
                 dst = self._pick_packer()
@@ -219,14 +328,14 @@ class Production:
                 ln.outbound += 1
                 dst.inbound += 1
                 out.append(t)
-        # finished pallets to storage
+        # finished goods cartons to storage
         for pk in self.packers.values():
             while pk.out_pallets - pk.outbound > 0:
                 dst = self._pick_storage(storage_load)
                 blocked = pk.out_pallets >= pk.output_capacity
                 t = Task(FG_DELIVERY, pk.output, dst, priority=2 if blocked else 1,
-                         description=f'{pk.pallet_capacity} thanh pham {pk.id} -> {dst}',
-                         cargo=f'{pk.pallet_capacity} SP thanh pham',
+                         description=f'Thung {pk.pallet_capacity} thanh pham {pk.id} -> {dst}',
+                         cargo=f'Thung {pk.pallet_capacity} SP thanh pham',
                          meta={'packer': pk.id}, created=now)
                 pk.outbound += 1
                 storage_load[dst] = storage_load.get(dst, 0) + 1
@@ -244,11 +353,11 @@ class Production:
 
     def _pick_packer(self) -> Optional[PackagingLine]:
         cands = [pk for pk in self.packers.values()
-                 if pk.input_boxes + pk.inbound < pk.input_capacity]
+                 if pk.active and pk.input_boxes + pk.inbound < pk.input_capacity]
         if not cands:
             return None
         return min(cands, key=lambda pk: (pk.input_boxes + pk.inbound
-                                          + (1 if pk.current > 0 else 0), pk.id))
+                                          + (1 if pk.current > 0 else 0), _order(pk.id)))
 
     def _pick_storage(self, load: Dict[str, int]) -> str:
         n = len(self.storage)
@@ -317,37 +426,46 @@ class Production:
             return task.priority
         return 1
 
+    @staticmethod
+    def _block_time(fl: Flow, fill: int, cap: int, out: int, out_cap: int) -> float:
+        """Seconds until the line blocks: the product that finds the output
+        carton full while every output slot is taken."""
+        room = (cap - fill) + max(0, out_cap - out - 1) * cap
+        arrivals = sorted(fl.arrivals())
+        if room < len(arrivals):
+            return arrivals[room]
+        k = room - len(arrivals)          # products not started yet
+        return fl.lead + max(0.0, fl.takt - fl.progress) + k * fl.takt
+
     def deadline(self, task: Task) -> float:
         """Seconds from now until the line this task serves stops without it:
         a production line runs out of material (kit), a production line blocks
-        on a full output or the packer runs out of boxes (box transfer), a
-        packer blocks on a full pallet output (finished goods).  inf: no
-        constraint (manual task)."""
+        on a full output or the packer runs out of cartons (box transfer), a
+        packer blocks on a full output (finished goods).  inf: no constraint
+        (manual task)."""
         if task.type == KIT_DELIVERY:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln is None:
                 return math.inf
             left = ln.material + ln.input_kits * ln.products_per_kit
-            return max(0.0, left * ln.cycle_time - ln.progress)
+            return max(0.0, left * ln.takt - ln.progress)
         if task.type == BOX_TRANSFER:
             out = math.inf
             ln = self.lines.get(task.meta.get('line', ''))
             if ln is not None:
-                room = (ln.box_capacity - ln.box_fill) + \
-                    max(0, ln.output_capacity - ln.out_boxes - 1) * ln.box_capacity
-                out = max(0.0, room * ln.cycle_time - ln.progress)
+                out = self._block_time(ln, ln.box_fill, ln.box_capacity, ln.out_boxes,
+                                       ln.output_capacity)
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk is not None:
                 left = pk.current + pk.input_boxes * self._box_size()
-                out = min(out, max(0.0, left * pk.pack_time - pk.progress))
+                out = min(out, max(0.0, left * pk.takt - pk.progress))
             return out
         if task.type == FG_DELIVERY:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk is None:
                 return math.inf
-            room = (pk.pallet_capacity - pk.pallet_fill) + \
-                max(0, pk.output_capacity - pk.out_pallets - 1) * pk.pallet_capacity
-            return max(0.0, room * pk.pack_time - pk.progress)
+            return self._block_time(pk, pk.pallet_fill, pk.pallet_capacity, pk.out_pallets,
+                                    pk.output_capacity)
         return math.inf
 
     def on_cancel(self, task: Task) -> None:
@@ -382,6 +500,21 @@ class Production:
             return 0.0
         return self.finished_stored / self.elapsed * 3600.0
 
+    def gz_state(self) -> str:
+        """Line state for the FactoryLines system of Gazebo, one entry per line:
+        "B1=run,in,open,fill,out|age age ...;C1=..." - run 0 while blocked,
+        `in` full cartons waiting on the input pedestal, `open` products left in
+        the open carton, `fill` products in the output carton, `out` full
+        output cartons, ages [s] of the products on the way (oldest first)."""
+        parts = []
+        for ln in self.lines.values():
+            parts.append(_gz(ln.id, ln.status, ln.input_kits, ln.material, ln.box_fill,
+                             ln.out_boxes, ln.items))
+        for pk in self.packers.values():
+            parts.append(_gz(pk.id, pk.status, pk.input_boxes, pk.current, pk.pallet_fill,
+                             pk.out_pallets, pk.items))
+        return ';'.join(parts)
+
     def snapshot(self) -> dict:
         lines = []
         for ln in self.lines.values():
@@ -391,7 +524,8 @@ class Production:
                 'input_capacity': ln.input_capacity, 'inbound': ln.inbound,
                 'work_in_progress': ln.box_fill, 'output_buffer': ln.out_boxes,
                 'output_capacity': ln.output_capacity, 'produced': ln.produced,
-                'utilization': ln.busy_time / self.elapsed if self.elapsed > 0 else 0.0})
+                'utilization': ln.busy_time / self.elapsed if self.elapsed > 0 else 0.0,
+                'active': ln.active, 'on_belt': len(ln.items)})
         for pk in self.packers.values():
             lines.append({
                 'line_id': pk.id, 'line_type': 'packaging', 'name': pk.name,
@@ -399,7 +533,8 @@ class Production:
                 'input_capacity': pk.input_capacity, 'inbound': pk.inbound,
                 'work_in_progress': pk.pallet_fill, 'output_buffer': pk.out_pallets,
                 'output_capacity': pk.output_capacity, 'produced': pk.packaged,
-                'utilization': pk.busy_time / self.elapsed if self.elapsed > 0 else 0.0})
+                'utilization': pk.busy_time / self.elapsed if self.elapsed > 0 else 0.0,
+                'active': pk.active, 'on_belt': len(pk.items)})
         for d in self.storage:
             lines.append({
                 'line_id': d, 'line_type': 'storage', 'name': f'Kho thanh pham {d}',
@@ -421,4 +556,17 @@ class Production:
             'products_packaged': self.products_packaged,
             'finished_stored': self.finished_stored,
             'throughput_per_hour': self.throughput_per_hour(),
+            'active_lines': self.active_lines,
         }
+
+
+def _order(line_id: str):
+    """B2 < B10: lines are numbered west -> east."""
+    digits = ''.join(ch for ch in line_id if ch.isdigit())
+    return (line_id.rstrip('0123456789'), int(digits) if digits else 0)
+
+
+def _gz(lid, status, n_in, open_left, fill, n_out, items) -> str:
+    run = 0 if status == BLOCKED else 1
+    ages = ' '.join(f'{a:.2f}' for a in items)
+    return f'{lid}={run},{n_in},{open_left},{fill},{n_out}|{ages}'

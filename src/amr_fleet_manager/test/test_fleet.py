@@ -27,35 +27,35 @@ def _status(fleet, rid, x, y, yaw=0.0, t=0.0):
 
 
 def test_head_on_robots_pass_each_other_without_stopping(layout, graph):
-    """Two robots meet head-on on the two-way north aisle: they detect each
+    """Two robots meet head-on on the two-way link lane: they detect each
     other, both shift to their right, pass and keep their route - nobody stops
     or drives into a yield bay."""
     sim = HeadlessSim(layout, 2)
     fleet = sim.fleet
     g = sim.graph
-    # put both robots on the north aisle facing each other
+    # put both robots on the link lane facing each other
     a, b = sim.world.robots['amr_01'], sim.world.robots['amr_02']
-    na = g.nearest_node(40.0, 67.0)
-    nb = g.nearest_node(53.0, 67.0)
-    a.x, a.y, a.yaw = g.nodes[na].x, g.nodes[na].y, 0.0
-    b.x, b.y, b.yaw = g.nodes[nb].x, g.nodes[nb].y, math.pi
+    na = g.nearest_node(84.0, 14.0)
+    nb = g.nearest_node(84.0, 27.0)
+    a.x, a.y, a.yaw = g.nodes[na].x, g.nodes[na].y, math.pi / 2
+    b.x, b.y, b.yaw = g.nodes[nb].x, g.nodes[nb].y, -math.pi / 2
     fleet.production.lines.clear()
     fleet.production.packers.clear()
     sim.step()
     ra, rb = fleet.robots['amr_01'], fleet.robots['amr_02']
-    goal_a = g.parking['P19']                 # far east
-    goal_b = g.parking['P01']                 # far west
+    # goals: the yield bays at both ends of the lane (like the head-on demo)
+    bays = sorted((i for i in g.yield_bays if g.nodes[i].id.startswith('Y.link.')),
+                  key=lambda i: g.nodes[i].y)
+    goal_a, goal_b = bays[-1], bays[0]
     fleet._release_parking(ra)
     fleet._release_parking(rb)
-    # force the shortest (head-on) routes, ignoring congestion-aware penalties
     route_a = g.plan(ra.current_node, goal_a)
     route_b = g.plan(rb.current_node, goal_b)
     shared = set(route_a) & set(route_b)
-    assert len(shared) >= 4, 'test setup: routes must overlap on the two-way aisle'
+    assert len(shared) >= 4, 'test setup: routes must overlap on the two-way lane'
+    fleet.yield_booking[goal_a], fleet.yield_booking[goal_b] = 'amr_01', 'amr_02'
     fleet._set_route(ra, route_a, 1, 'TO_PARK', float('nan'))
     fleet._set_route(rb, route_b, 1, 'TO_PARK', float('nan'))
-    ra.parking, rb.parking = 'P19', 'P01'
-    fleet.parking_booking['P19'], fleet.parking_booking['P01'] = 'amr_01', 'amr_02'
     yielded = stalled = False
     closest = math.inf
     passing_speed = math.inf

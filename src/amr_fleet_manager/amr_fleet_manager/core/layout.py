@@ -553,30 +553,75 @@ def mark_passing_nodes(layout: dict, graph: TrafficGraph) -> None:
             graph.pass_axis[n.idx] = ln.dir
 
 
+# Work cell at the end of a line (station object line_in / line_out), in the
+# frame of the station: u along the lane, v from the service slot towards the
+# line.  A station arm moves the cartons between the AMR deck and a pedestal
+# with 3 slots; a loader arm moves every product between the open carton on
+# the pedestal and the belt; spent cartons go to (input) / new ones come from
+# (output) a stack of folded cartons.  The line end is CELL_BELT_V away.
+CELL_SLOTS = ((0.75, 1.10), (0.75, 1.75), (0.75, 2.40))
+CELL_ARM = (-0.55, 1.25)
+CELL_LOADER = (0.12, 2.45)
+CELL_STACK = (-1.20, 2.00)
+CELL_RECT = (-1.55, 0.78, 1.12, 2.90)       # u0, v0, u1, v1
+CELL_BELT_V = 3.65                          # loader <-> belt hand-off point
+PEDESTAL_TOP = 0.62
+BELT_TOP = 0.89
+BELT_MARGIN = 0.25                          # hand-off point inside the belt end
+LINE_CELLS = ('line_in', 'line_out')
+
+
+def cell_point(o: dict, u: float, v: float) -> Vec:
+    """World xy of the cell point (u, v) of a station object."""
+    sx, sy = o['service']
+    d, r = o['dir'], o['right']
+    return (sx + d[0] * u + r[0] * v, sy + d[1] * u + r[1] * v)
+
+
+def line_lead_time(process: dict, line: dict) -> Tuple[float, float, float]:
+    """(loader, belt, drop) seconds a product needs to cross a line: the
+    loader arm puts it on the belt, the belt carries it from end to end, the
+    loader arm at the other end packs it into the carton."""
+    length = max(0.0, abs(float(line['y_in']) - float(line['y_out'])) - 2 * BELT_MARGIN)
+    speed = max(0.01, float(process.get('belt_speed', 0.2)))
+    return (float(process.get('loader_time', 5.0)), length / speed,
+            float(process.get('drop_time', 5.0)))
+
+
 def station_objects(layout: dict, graph: TrafficGraph) -> List[dict]:
-    """Objects standing next to every station slot (kit rack, conveyor end,
+    """Objects standing next to every station slot (kit rack, line work cell,
     storage table), on the far side of the lay-by.  Returned in the same
-    format as layout['objects'] (axis aligned rect) plus 'yaw' and 'station'."""
+    format as layout['objects'] (axis aligned rect) plus 'yaw', 'station',
+    the service slot and the lane frame ('dir', 'right')."""
     out = []
-    kinds = {'kit_rack': (0.9, 0.55, 1.2), 'conveyor_in': (1.0, 0.6, 0.55),
-             'conveyor_out': (1.0, 0.6, 0.55), 'storage_table': (1.0, 0.6, 0.7)}
+    kinds = {'kit_rack': (0.9, 0.55, 1.2), 'storage_table': (1.0, 0.6, 0.7)}
     lanes = getattr(graph, 'lanes', {})
     for st in layout.get('stations', []) or []:
         sn = graph.stations.get(st['id'])
         ln = lanes.get(st['lane'])
         if sn is None or ln is None:
             continue
-        along, across, h = kinds.get(st.get('object', 'storage_table'), (1.0, 0.6, 0.7))
+        kind = st.get('object', 'storage_table')
         s = graph.nodes[sn.service]
         r = ln.right
-        cx = s.x + r[0] * (0.75 + across / 2)
-        cy = s.y + r[1] * (0.75 + across / 2)
         d = ln.dir
-        hx = abs(d[0]) * along / 2 + abs(r[0]) * across / 2
-        hy = abs(d[1]) * along / 2 + abs(r[1]) * across / 2
-        out.append({'kind': st.get('object', 'storage_table'), 'rect': [cx - hx, cy - hy, cx + hx, cy + hy],
-                    'height': h, 'yaw': math.atan2(d[1], d[0]), 'station': st['id'],
-                    'size': [along, across]})
+        o = {'kind': kind, 'yaw': math.atan2(d[1], d[0]), 'station': st['id'],
+             'service': (s.x, s.y), 'dir': d, 'right': r}
+        if kind in LINE_CELLS:
+            u0, v0, u1, v1 = CELL_RECT
+            pts = [cell_point(o, u, v) for u in (u0, u1) for v in (v0, v1)]
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            o.update({'rect': [min(xs), min(ys), max(xs), max(ys)], 'height': 1.2,
+                      'size': [u1 - u0, v1 - v0]})
+        else:
+            along, across, h = kinds.get(kind, (1.0, 0.6, 0.7))
+            cx = s.x + r[0] * (0.75 + across / 2)
+            cy = s.y + r[1] * (0.75 + across / 2)
+            hx = abs(d[0]) * along / 2 + abs(r[0]) * across / 2
+            hy = abs(d[1]) * along / 2 + abs(r[1]) * across / 2
+            o.update({'rect': [cx - hx, cy - hy, cx + hx, cy + hy], 'height': h,
+                      'size': [along, across]})
+        out.append(o)
     return out
 
 

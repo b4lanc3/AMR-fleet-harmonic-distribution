@@ -19,8 +19,8 @@ from ..core.layout import all_objects
 OBJECT_COLORS = {
     'rack': (0.30, 0.45, 0.70), 'conveyor': (0.25, 0.25, 0.28), 'machine': (0.85, 0.50, 0.15),
     'packer': (0.55, 0.30, 0.75), 'pallet': (0.65, 0.50, 0.30), 'column': (0.6, 0.6, 0.6),
-    'charger': (0.95, 0.80, 0.10), 'kit_rack': (0.20, 0.45, 0.85), 'conveyor_in': (0.25, 0.25, 0.28),
-    'conveyor_out': (0.25, 0.25, 0.28), 'storage_table': (0.55, 0.55, 0.50),
+    'charger': (0.95, 0.80, 0.10), 'kit_rack': (0.20, 0.45, 0.85), 'line_in': (0.95, 0.52, 0.10),
+    'line_out': (0.10, 0.70, 0.30), 'storage_table': (0.55, 0.55, 0.50),
 }
 
 
@@ -83,7 +83,7 @@ def static_markers(layout: dict, graph: TrafficGraph, frame: str, stamp) -> Mark
         tm.color = _c(col, 1.0)
         tm.text = z.get('name', z['id'])
         arr.markers.append(tm)
-    # objects (layout objects + kit racks / conveyor ends next to the stations)
+    # objects (layout objects + kit racks / line work cells next to the stations)
     for i, o in enumerate(all_objects(layout, graph)):
         x0, y0, x1, y1 = o['rect']
         h = float(o.get('height', 1.0))

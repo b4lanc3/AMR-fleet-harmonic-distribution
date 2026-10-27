@@ -250,12 +250,15 @@ function renderLines() {
     }
     const kind = ln.line_type === 'production' ? 'Sản xuất' : 'Đóng gói';
     const inUnit = ln.line_type === 'production' ? 'kit' : 'thùng';
-    const outUnit = ln.line_type === 'production' ? 'thùng' : 'pallet';
+    const outUnit = 'thùng';
+    const off = ln.active === false
+      ? badge('info', '⏸', ln.status === 'IDLE' ? 'Tạm nghỉ' : 'Đang xả hàng') : '';
     out.push(`<div class="line">
-      <span class="name">${esc(ln.line_id)} · ${kind}</span>${badge(role, icon, text)}
+      <span class="name">${esc(ln.line_id)} · ${kind}</span>${off || badge(role, icon, text)}
       <div class="meta">
         <span>Vào (${inUnit}) ${meter(ln.input_buffer, ln.input_capacity, ln.inbound)} ${ln.input_buffer}/${ln.input_capacity}${ln.inbound ? ` +${ln.inbound} đang tới` : ''}</span>
         <span>Ra (${outUnit}) ${meter(ln.output_buffer, ln.output_capacity, 0)} ${ln.output_buffer}/${ln.output_capacity}</span>
+        <span>Trên băng ${ln.on_belt ?? 0} SP</span>
         <span>Đang xếp ${ln.work_in_progress} SP</span>
         <span>${ln.line_type === 'production' ? 'Đã SX' : 'Đã đóng gói'} <b>${ln.produced}</b></span>
         <span>Hiệu suất ${(ln.utilization * 100).toFixed(0)}%</span>

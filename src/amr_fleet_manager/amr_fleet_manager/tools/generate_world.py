@@ -7,13 +7,15 @@ Everything is built from primitives (no external model downloads): an
 insulated-panel hall with concrete base, window band, roller doors and steel
 columns, roof beams with light fixtures and real lights, epoxy floor zones and
 lane markings, component racks full of bins and cartons, pallet racks with
-wrapped pallets, 4 production lines (conveyor, CNC, robot cell, assembly
-bench, QC gate, case packer, control cabinet) and 4 packaging lines (unboxer,
-flow wrapper, case packer, robot palletizer, output pallet), the charging
-station, office annex, trucks at the docks, fire extinguishers, signs...
+wrapped pallets, production lines (conveyor, CNC, robot cell, assembly
+bench, QC gate, case packer, control cabinet) and packaging lines (unboxer,
+flow wrapper, case packer, robot palletizer), a work cell at both ends of every
+line, the chargers, office annex, trucks at the docks, fire extinguishers, signs...
 
-Products move along every conveyor through the LineAnimator system
-(amr_gazebo); conveyors stop when the MES reports the line starved/blocked.
+The FactoryLines system (amr_gazebo) runs the work cells from the MES state:
+the station arm moves the cartons between the AMR and the pedestal, the loader
+arm puts every product of the open carton on the belt, the product crosses
+the line and is packed into the carton on the output pedestal.
 
 With --map the generator also writes an occupancy map (PGM + YAML) for
 map_server / AMCL by slicing every visual at the 2D lidar plane, so the map
@@ -35,7 +37,9 @@ from xml.sax.saxutils import escape
 import numpy as np
 
 from ..core.docking import CONTACT_DEPTH
-from ..core.layout import (build_graph, line_objects, load_layout, people_routes,
+from ..core.layout import (BELT_MARGIN, BELT_TOP, CELL_ARM, CELL_LOADER, CELL_SLOTS,
+                           CELL_STACK, LINE_CELLS, PEDESTAL_TOP, build_graph, cell_point,
+                           line_lead_time, line_objects, load_layout, people_routes,
                            people_segments, station_objects)
 
 LIDAR_Z = (0.16, 0.24)      # z band of the 2D lidar plane (mounted at 0.20 m)
@@ -647,7 +651,7 @@ def add_light_tower(m: Model, x, y, z) -> None:
 #   tool    origin on the wrist, the tool hangs along -z (vertical flange)
 # The same tables draw the static arms of the line cells (baked into the
 # factory mesh) and the animated station arms (one OBJ per link, posed by the
-# StationArms system of amr_gazebo with the same inverse kinematics).
+# FactoryLines system of amr_gazebo with the same inverse kinematics).
 ARM_DIMS = {'a1': 0.10, 'd1': 0.30, 'l2': 0.85, 'l3': 0.90, 'tool': 0.19}
 CARTON = (0.56, 0.40, 0.22)           # AMR load (amr_description cargo_link)
 DECK_TOP = 0.515                      # top of the load on the AMR deck
@@ -699,6 +703,11 @@ def arm_links(k: float = 1.0, color='robot_orange', tool: str = 'vacuum') -> Dic
         links['tool'] += [('box', (0, 0, -0.125 * k), (0.62 * k, 0.16 * k, 0.04 * k), dark)]
         for sx in (-0.30, 0.30):
             links['tool'].append(('box', (sx * k, 0, -t), (0.03 * k, 0.30 * k, 0.15 * k), steel))
+    elif tool == 'pincer':          # small parallel gripper of a loader arm
+        links['tool'] += [('box', (0, 0, -0.12 * k), (0.07 * k, 0.16 * k, 0.03 * k), dark)]
+        for sy in (-0.065, 0.065):
+            links['tool'].append(('box', (0, sy * k, -t + 0.03 * k), (0.04 * k, 0.015 * k, 0.07 * k),
+                                  steel))
     elif tool == 'torch':           # welding torch with its cable
         links['tool'] += [('box', (0, 0, -0.13 * k), (0.12 * k, 0.12 * k, 0.04 * k), dark),
                           ('cyl', (0, 0, -0.18 * k), 0.022 * k, 0.10 * k, 'z', 'copper'),
@@ -713,7 +722,7 @@ def _rot_z(a: float) -> np.ndarray:
 def arm_ik(base, p, k: float = 1.0) -> Tuple[float, float, float, Tuple[float, ...]]:
     """Joint angles (q1 azimuth, q2 shoulder lean, q3 forearm down pitch) and the
     wrist position for the tool tip p, wrist above the tip, elbow up.  Same
-    solution as amr_gazebo/StationArms."""
+    solution as amr_gazebo/FactoryLines."""
     d = arm_dims(k)
     bx, by, bz = base
     q1 = math.atan2(p[1] - by, p[0] - bx)
@@ -901,36 +910,22 @@ def add_packaging_line(m: Model, ln: dict, objs: Dict[str, dict]) -> None:
     add_pallet(m, o, 1)
 
 
-def build_lines(layout, slices, out: List[str], segments: List[dict]) -> None:
+def build_lines(layout, slices, out: List[str]) -> None:
     by_line: Dict[str, Dict[str, dict]] = {}
     for o in line_objects(layout):
         by_line.setdefault(o['line'], {})[o['kind']] = o
     for ln in layout.get('lines', []) or []:
         m = Model(f'line_{ln["id"]}', slices)
         objs = by_line[ln['id']]
-        x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
-        mid = (yi + yo) / 2
         if ln.get('kind', 'production') == 'production':
             add_production_line(m, ln, objs)
-            segs = [(yi - 0.3, yi - 7.7, (0.22, 0.22, 0.12), (0.55, 0.60, 0.68, 1), 0.9),
-                    (yi - 7.9, yo + 5.7, (0.30, 0.30, 0.20), (0.95, 0.52, 0.10, 1), 1.2),
-                    (yo + 4.3, yo + 0.3, (0.42, 0.36, 0.30), (0.74, 0.56, 0.34, 1), 1.0)]
         else:
             add_packaging_line(m, ln, objs)
-            segs = [(yi - 0.3, mid + 4.7, (0.30, 0.30, 0.20), (0.95, 0.52, 0.10, 1), 1.1),
-                    (mid + 0.3, mid - 4.7, (0.32, 0.32, 0.22), (0.86, 0.90, 0.95, 1), 1.0),
-                    (mid - 4.9, yo + 0.3, (0.45, 0.40, 0.32), (0.74, 0.56, 0.34, 1), 1.0)]
-        for k, (sa, sb, size, color, spacing) in enumerate(segs):
-            z = 0.9 + size[2] / 2 + 0.01
-            segments.append({'line': ln['id'], 'name': f'{ln["id"]}_s{k}', 'start': (x, sa, z),
-                             'end': (x, sb, z), 'size': size, 'color': color, 'spacing': spacing,
-                             'speed': 0.22})
         out.append(m.sdf())
 
 
-def build_station_objects(layout, graph, slices, out: List[str], arms: bool = False) -> None:
-    """arms: the station arms (StationArms system) handle the cartons on the
-    transfer conveyors, so none is drawn here."""
+def build_station_objects(layout, graph, slices, out: List[str]) -> None:
+    """Kit racks, storage tables and the static part of the line work cells."""
     for o in station_objects(layout, graph):
         m = Model(f'station_{o["station"]}', slices)
         along, across = o['size']
@@ -938,7 +933,8 @@ def build_station_objects(layout, graph, slices, out: List[str], arms: bool = Fa
         h = float(o.get('height', 0.6))
         yaw = o['yaw']
         loc = Local(m, cx, cy, yaw)
-        m.collision_box(cx, cy, h / 2, sx, sy, h)
+        if o['kind'] not in LINE_CELLS:
+            m.collision_box(cx, cy, h / 2, sx, sy, h)
         kind = o['kind']
         if kind == 'kit_rack':
             for z in (0.12, 0.6, 1.08):
@@ -948,19 +944,8 @@ def build_station_objects(layout, graph, slices, out: List[str], arms: bool = Fa
             for dx in (-along / 2 + 0.03, along / 2 - 0.03):
                 for dy in (-across / 2 + 0.03, across / 2 - 0.03):
                     loc.box(dx, dy, h / 2, 0.04, 0.04, h, 'rack_up')
-        elif kind.startswith('conveyor'):
-            loc.box(0, 0, 0.27, along, across, 0.04, 'belt')
-            for dx in (-along / 2 + 0.06, along / 2 - 0.06):
-                for dy in (-across / 2 + 0.06, across / 2 - 0.06):
-                    loc.box(dx, dy, 0.13, 0.05, 0.05, 0.26, 'galv')
-            for dy in (-across / 2 + 0.02, across / 2 - 0.02):
-                loc.box(0, dy, 0.33, along, 0.03, 0.08, 'galv')
-            if kind == 'conveyor_out' and not arms:
-                loc.box(0, 0, 0.45, 0.42, 0.36, 0.3, 'carton')
-            # sign post on the corner away from the station arm and the AMR slot
-            loc.box(-along / 2 - 0.1, -across / 2, 1.2, 0.05, 0.05, 2.4, 'steel')
-            loc.box(-along / 2 - 0.1, -across / 2, 2.3, 0.6, 0.04, 0.3,
-                    'machine_orange' if kind == 'conveyor_in' else 'pad_station')
+        elif kind in LINE_CELLS:
+            add_work_cell(m, o)
         else:   # storage table
             loc.box(0, 0, h - 0.03, along, across, 0.06, 'galv')
             for dx in (-along / 2 + 0.05, along / 2 - 0.05):
@@ -970,25 +955,6 @@ def build_station_objects(layout, graph, slices, out: List[str], arms: bool = Fa
         out.append(m.sdf())
 
 
-def station_arms(layout: dict, graph) -> List[dict]:
-    """One transfer arm per line input / output station: beside the transfer
-    conveyor, on the side away from the queue slot.  'in': AMR -> conveyor,
-    'out': conveyor -> AMR."""
-    arms = []
-    for o in station_objects(layout, graph):
-        if not o['kind'].startswith('conveyor'):
-            continue
-        along, _ = o['size']
-        x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
-        bx, by = rot(along / 2 + 0.75, 0.0, o['yaw'])
-        s = graph.nodes[graph.stations[o['station']].service]
-        arms.append({'name': o['station'], 'mode': 'in' if o['kind'] == 'conveyor_in' else 'out',
-                     'base': (cx + bx, cy + by, ARM_PEDESTAL), 'service': (s.x, s.y),
-                     'conveyor': (cx, cy, 0.29, o['yaw']),
-                     'feed': rot(0.0, -1.0, o['yaw'])})     # from the belt towards the line
-    return arms
-
-
 def _link_model(name: str, pose, geometry: str) -> str:
     x, y, z, roll, pitch, yaw = pose
     return (f'<model name="{name}"><static>true</static>'
@@ -996,69 +962,55 @@ def _link_model(name: str, pose, geometry: str) -> str:
             f'<link name="link">{geometry}</link></model>\n')
 
 
-def _carton_geometry() -> str:
+def _vis(name, size, mat, pose=(0.0, 0.0, 0.0)) -> str:
+    return (f'<visual name="{name}"><pose>{pose[0]:.4f} {pose[1]:.4f} {pose[2]:.4f} 0 0 0</pose>'
+            f'<geometry><box><size>{size[0]:.4f} {size[1]:.4f} {size[2]:.4f}</size></box>'
+            f'</geometry>{_mat(mat)}<cast_shadows>false</cast_shadows></visual>')
+
+
+# carton styles: (box, band) - kit of components, carton of unpacked products,
+# carton of finished goods
+CARTON_STYLE = {'kit': ('carton', 'bin_blue'), 'semi': ('carton', 'dark'),
+                'fg': ('carton_dark', 'green')}
+# product looks along the lines: (size, body material, cap material, film)
+ITEM_LOOK = {'part': ((0.10, 0.09, 0.06), 'steel_light', 'steel', False),
+             'product': ((0.10, 0.09, 0.08), 'machine_orange', 'machine_dark', False),
+             'wrapped': ((0.11, 0.10, 0.09), 'machine_orange', 'machine_dark', True)}
+TRAY_WALL = 0.015
+
+
+def _carton_geometry(style: str = 'semi') -> str:
+    """Closed carton, origin in its centre."""
     sx, sy, sz = CARTON
-    return (f'<visual name="box"><geometry><box><size>{sx} {sy} {sz}</size></box></geometry>'
-            f'{_mat("carton")}<cast_shadows>false</cast_shadows></visual>'
-            f'<visual name="tape"><pose>0 0 {sz / 2 + 0.001} 0 0 0</pose><geometry><box>'
-            f'<size>{sx + 0.01} 0.06 0.004</size></box></geometry>{_mat("dark")}'
-            f'<cast_shadows>false</cast_shadows></visual>')
+    body, band = CARTON_STYLE[style]
+    return (_vis('box', CARTON, body)
+            + _vis('tape', (sx + 0.01, 0.06, 0.004), band, (0, 0, sz / 2 + 0.001))
+            + _vis('label', (0.004, 0.16, 0.10), 'white', (sx / 2 + 0.002, 0, 0.0)))
 
 
-def build_station_arms(layout, graph, slices, out: List[str], mesh=None) -> str:
-    """Pedestals (static, in the lidar map), the moving links and the cartons of
-    the station arms; returns the StationArms plugin element."""
-    arms = station_arms(layout, graph)
-    if not arms:
-        return ''
-    links = arm_links()
-    moving = ('turret', 'upper', 'fore', 'tool')
-    geometry = {}
-    if mesh:
-        import os
-        obj_file, uri = mesh
-        for name in moving:
-            baker = MeshBaker()
-            draw_parts(baker, links[name])
-            baker.write(os.path.join(os.path.dirname(os.path.abspath(obj_file)), f'arm_{name}.obj'))
-            geometry[name] = (f'<visual name="v"><geometry><mesh><uri>{escape(uri.rsplit("/", 1)[0])}'
-                              f'/arm_{name}.obj</uri></mesh></geometry>'
-                              f'<cast_shadows>false</cast_shadows></visual>')
-    else:
-        for name in moving:
-            m = Model(name)
-            m.baker = None
-            draw_parts(m, links[name], in_map=False)
-            geometry[name] = ''.join(m.visuals)
+def _tray_geometry(style: str = 'semi') -> str:
+    """Open carton (flaps folded down), origin in the centre of its volume."""
+    sx, sy, sz = CARTON
+    body, band = CARTON_STYLE[style]
+    t = TRAY_WALL
+    return (_vis('floor', (sx, sy, t), body, (0, 0, -sz / 2 + t / 2))
+            + _vis('w1', (sx, t, sz), body, (0, sy / 2 - t / 2, 0))
+            + _vis('w2', (sx, t, sz), body, (0, -sy / 2 + t / 2, 0))
+            + _vis('w3', (t, sy, sz), body, (sx / 2 - t / 2, 0, 0))
+            + _vis('w4', (t, sy, sz), body, (-sx / 2 + t / 2, 0, 0))
+            + _vis('band', (0.004, 0.16, 0.06), band, (sx / 2 + 0.002, 0, 0.0)))
 
-    cfg = []
-    for a in arms:
-        sid, base = a['name'], a['base']
-        m = Model(f'arm_{sid}_pedestal', slices)
-        add_robot_arm_pedestal(m, base)
-        out.append(m.sdf())
-        cx, cy, cz, cyaw = a['conveyor']
-        home = ((cx + a['service'][0]) / 2, (cy + a['service'][1]) / 2, 1.25)
-        for name, (o, R) in arm_frames(base, home, cyaw).items():
-            if name not in geometry:
-                continue
-            rpy = (math.atan2(R[2, 1], R[2, 2]), -math.asin(max(-1.0, min(1.0, R[2, 0]))),
-                   math.atan2(R[1, 0], R[0, 0]))
-            out.append(_link_model(f'arm_{sid}_{name}', (*o, *rpy), geometry[name]))
-        parcel = (cx, cy, cz + CARTON[2] / 2) if a['mode'] == 'out' else (cx, cy, -20.0)
-        out.append(_link_model(f'arm_{sid}_carton', (base[0], base[1], -20.0, 0, 0, 0),
-                               _carton_geometry()))
-        out.append(_link_model(f'arm_{sid}_parcel', (*parcel, 0, 0, cyaw), _carton_geometry()))
-        cfg.append(f'<arm name="{sid}" mode="{a["mode"]}">'
-                   f'<base>{base[0]:.3f} {base[1]:.3f} {base[2]:.3f}</base>'
-                   f'<service>{a["service"][0]:.3f} {a["service"][1]:.3f}</service>'
-                   f'<conveyor>{cx:.3f} {cy:.3f} {cz:.3f} 0 0 {cyaw:.4f}</conveyor>'
-                   f'<feed>{a["feed"][0]:.3f} {a["feed"][1]:.3f}</feed></arm>')
-    d = ARM_DIMS
-    return (f'  <plugin filename="amr_station_arms" name="amr_gazebo::StationArms">'
-            f'<a1>{d["a1"]}</a1><d1>{d["d1"]}</d1><l2>{d["l2"]}</l2><l3>{d["l3"]}</l3>'
-            f'<tool>{d["tool"]}</tool><carton>{CARTON[0]} {CARTON[1]} {CARTON[2]}</carton>'
-            f'<deck_top>{DECK_TOP}</deck_top>{"".join(cfg)}</plugin>\n')
+
+def _item_geometry(look: str) -> str:
+    """One product, origin in its centre."""
+    (sx, sy, sz), body, cap, film = ITEM_LOOK[look]
+    if film:        # shrink-wrapped product: the product inside a film
+        core = (sx - 0.02, sy - 0.02, sz - 0.02)
+        return (_vis('core', core, body) + _vis('cap', (core[0], core[1] * 0.5, 0.006), cap,
+                                                (0, 0, core[2] / 2 + 0.003))
+                + _vis('film', (sx, sy, sz), 'wrap'))
+    return _vis('body', (sx, sy, sz * 0.8), body, (0, 0, -sz * 0.1)) + \
+        _vis('cap', (sx * 0.7, sy * 0.7, sz * 0.2), cap, (0, 0, sz * 0.4))
 
 
 def add_robot_arm_pedestal(m: Model, base) -> None:
@@ -1069,6 +1021,180 @@ def add_robot_arm_pedestal(m: Model, base) -> None:
         for dy in (-0.22, 0.22):
             m.cyl(x + dx, y + dy, 0.05, 0.025, 0.03, 'steel_light')
     draw_parts(m, arm_links()['base'], base)
+
+
+def add_work_cell(m: Model, o: dict) -> None:
+    """Static part of a line work cell: the 3-slot pedestal, the pedestals of
+    the station arm and of the loader arm, the stack of folded cartons and a
+    sign post (moving parts: build_line_cells)."""
+    yaw = o['yaw']
+    pts = [cell_point(o, u, v) for u, v in CELL_SLOTS]
+    (ax, ay), (bx, by) = pts[0], pts[-1]
+    cx, cy = (ax + bx) / 2, (ay + by) / 2
+    length = math.hypot(bx - ax, by - ay) + CARTON[1] + 0.25      # slots along v
+    loc = Local(m, cx, cy, yaw)
+    top = PEDESTAL_TOP
+    # pedestal: v runs to the right of the lane = -y of the Local frame
+    loc.box(0, 0, top - 0.025, CARTON[0] + 0.12, length, 0.05, 'machine_blue', collide=True)
+    for dv in (-length / 2 + 0.06, length / 2 - 0.06):
+        for du in (-CARTON[0] / 2, CARTON[0] / 2):
+            loc.box(du, dv, (top - 0.05) / 2, 0.05, 0.05, top - 0.05, 'galv')
+    loc.box(0, 0, 0.12, CARTON[0], length - 0.12, 0.03, 'galv', in_map=False)
+    for (px, py) in pts:                                   # slot outlines on the top
+        Local(m, px, py, yaw).box(0, 0, top + 0.002, CARTON[0] + 0.04, CARTON[1] + 0.04, 0.004,
+                                  'yellow')
+        Local(m, px, py, yaw).box(0, 0, top + 0.004, CARTON[0] - 0.02, CARTON[1] - 0.02, 0.004,
+                                  'machine_blue')
+    for u, v in (CELL_ARM, CELL_LOADER):
+        x, y = cell_point(o, u, v)
+        add_robot_arm_pedestal(m, (x, y, ARM_PEDESTAL))
+    # stack of folded cartons on a small cart (spent ones in, new ones out)
+    x, y = cell_point(o, *CELL_STACK)
+    st = Local(m, x, y, yaw)
+    st.box(0, 0, 0.30, 0.62, 0.46, 0.04, 'steel', collide=True)
+    for du in (-0.27, 0.27):
+        for dv in (-0.19, 0.19):
+            st.box(du, dv, 0.15, 0.04, 0.04, 0.28, 'steel')
+    for k in range(5):
+        st.box(0, 0, 0.335 + k * 0.03, 0.58, 0.42, 0.025, 'carton' if k % 2 else 'carton_dark')
+    # sign post on the corner of the cell away from the AMR
+    x, y = cell_point(o, -1.45, 2.75)
+    m.box(x, y, 1.2, 0.05, 0.05, 2.4, 'steel')
+    Local(m, x, y, yaw).box(0, 0, 2.3, 0.6, 0.04, 0.3,
+                            'machine_orange' if o['kind'] == 'line_in' else 'pad_station')
+
+
+STACK_TOP = 0.335 + 5 * 0.03
+
+
+def _arm_geometry(mesh, prefix: str, color: str, tool: str) -> Dict[str, str]:
+    """Visual of every moving arm link (one OBJ per link with a mesh)."""
+    links = arm_links(1.0, color, tool)
+    geometry = {}
+    for name in ('turret', 'upper', 'fore', 'tool'):
+        if mesh:
+            import os
+            obj_file, uri = mesh
+            baker = MeshBaker()
+            draw_parts(baker, links[name])
+            baker.write(os.path.join(os.path.dirname(os.path.abspath(obj_file)),
+                                     f'{prefix}_{name}.obj'))
+            geometry[name] = (f'<visual name="v"><geometry><mesh><uri>{escape(uri.rsplit("/", 1)[0])}'
+                              f'/{prefix}_{name}.obj</uri></mesh></geometry>'
+                              f'<cast_shadows>false</cast_shadows></visual>')
+        else:
+            m = Model(name)
+            m.baker = None
+            draw_parts(m, links[name], in_map=False)
+            geometry[name] = ''.join(m.visuals)
+    return geometry
+
+
+def _posed_arm(name: str, base, tip, yaw: float, geometry: Dict[str, str]) -> str:
+    out = []
+    for link, (o, R) in arm_frames(base, tip, yaw).items():
+        if link not in geometry:
+            continue
+        rpy = (math.atan2(R[2, 1], R[2, 2]), -math.asin(max(-1.0, min(1.0, R[2, 0]))),
+               math.atan2(R[1, 0], R[0, 0]))
+        out.append(_link_model(f'{name}_{link}', (*o, *rpy), geometry[link]))
+    return ''.join(out)
+
+
+HIDDEN = -20.0
+
+
+def line_cells(layout: dict, graph) -> List[dict]:
+    """Everything the FactoryLines system needs per line: belt hand-off
+    points, timing, product looks and both work cells."""
+    process = layout.get('process', {}) or {}
+    takt = {c['id']: float(c.get('cycle_time', 22.0)) for c in process.get('production_lines', [])}
+    takt.update({c['id']: float(c.get('pack_time', 21.0)) for c in process.get('packaging_lines', [])})
+    cells = {o['station']: o for o in station_objects(layout, graph) if o['kind'] in LINE_CELLS}
+    ends = {}
+    for c in process.get('production_lines', []) + process.get('packaging_lines', []):
+        ends[c['id']] = (c['input'], c['output'])
+    out = []
+    for ln in layout.get('lines', []) or []:
+        lid = ln['id']
+        if lid not in ends or ends[lid][0] not in cells or ends[lid][1] not in cells:
+            continue
+        prod = ln.get('kind', 'production') == 'production'
+        x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
+        s = 1.0 if yi > yo else -1.0
+        t_load, t_belt, t_drop = line_lead_time(process, ln)
+        lead = t_load + t_belt + t_drop
+        n_way = int(math.ceil(lead / takt.get(lid, 20.0))) + 2
+        cap = 12
+        out.append({
+            'id': lid, 'kind': 'production' if prod else 'packaging',
+            'belt': ((x, yi - s * BELT_MARGIN), (x, yo + s * BELT_MARGIN)),
+            'timing': (t_load, t_belt, t_drop), 'cap': cap,
+            'transform': 0.5 if prod else 0.4,
+            'looks': ('part', 'product') if prod else ('product', 'wrapped'),
+            'styles': (('kit', 'semi') if prod else ('semi', 'fg')),
+            'pool': (cap + n_way, n_way + cap),
+            'in': cells[ends[lid][0]], 'out': cells[ends[lid][1]]})
+    return out
+
+
+def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> str:
+    """Moving parts of the line work cells (arms, cartons, open cartons,
+    products) and the FactoryLines plugin element that drives them."""
+    lines = line_cells(layout, graph)
+    if not lines:
+        return ''
+    station_geo = _arm_geometry(mesh, 'arm', 'robot_orange', 'vacuum')
+    loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer')
+    hidden = (0.0, 0.0, HIDDEN, 0, 0, 0)
+    cfg = []
+
+    def v3(p) -> str:
+        return f'{p[0]:.3f} {p[1]:.3f} {p[2]:.3f}'
+
+    for L in lines:
+        ends = []
+        for side, style in (('in', L['styles'][0]), ('out', L['styles'][1])):
+            o = L[side]
+            sid, yaw = o['station'], o['yaw']
+            arm = (*cell_point(o, *CELL_ARM), ARM_PEDESTAL)
+            loader = (*cell_point(o, *CELL_LOADER), ARM_PEDESTAL)
+            slots = [(*cell_point(o, u, v), PEDESTAL_TOP) for u, v in CELL_SLOTS]
+            stack = (*cell_point(o, *CELL_STACK), STACK_TOP)
+            service = o['service']
+            mid = cell_point(o, CELL_SLOTS[0][0] / 2, CELL_SLOTS[0][1] / 2)
+            out.append(_posed_arm(f'fl_{sid}_arm', arm, (*mid, 1.25), yaw, station_geo))
+            belt = L['belt'][0] if side == 'in' else L['belt'][1]
+            lm = ((slots[1][0] + belt[0]) / 2, (slots[1][1] + belt[1]) / 2, 1.3)
+            out.append(_posed_arm(f'fl_{sid}_ld', loader, lm, yaw, loader_geo))
+            for k in range(len(slots)):
+                out.append(_link_model(f'fl_{sid}_box{k}', hidden, _carton_geometry(style)))
+                out.append(_link_model(f'fl_{sid}_tray{k}', hidden, _tray_geometry(style)))
+            out.append(_link_model(f'fl_{sid}_hbox', hidden, _carton_geometry(style)))
+            out.append(_link_model(f'fl_{sid}_htray', hidden, _tray_geometry(style)))
+            ends.append(f'<end side="{side}" station="{sid}">'
+                        f'<service>{service[0]:.3f} {service[1]:.3f}</service>'
+                        f'<yaw>{yaw:.4f}</yaw><arm>{v3(arm)}</arm><loader>{v3(loader)}</loader>'
+                        + ''.join(f'<slot>{v3(p)}</slot>' for p in slots)
+                        + f'<stack>{v3(stack)}</stack></end>')
+        heights = []
+        for pool, (n, look) in zip('ab', zip(L['pool'], L['looks'])):
+            heights.append(ITEM_LOOK[look][0][2])
+            for k in range(n):
+                out.append(_link_model(f'fl_{L["id"]}_{pool}{k}', hidden, _item_geometry(look)))
+        (x0, y0), (x1, y1) = L['belt']
+        t = L['timing']
+        cfg.append(f'<line id="{L["id"]}" cap="{L["cap"]}" transform="{L["transform"]}">'
+                   f'<belt>{x0:.3f} {y0:.3f} {BELT_TOP:.3f} {x1:.3f} {y1:.3f} {BELT_TOP:.3f}</belt>'
+                   f'<timing>{t[0]:.3f} {t[1]:.3f} {t[2]:.3f}</timing>'
+                   f'<pool_a>{L["pool"][0]} {heights[0]:.3f}</pool_a>'
+                   f'<pool_b>{L["pool"][1]} {heights[1]:.3f}</pool_b>{"".join(ends)}</line>')
+    d = ARM_DIMS
+    return (f'  <plugin filename="amr_factory_lines" name="amr_gazebo::FactoryLines">'
+            f'<topic>{topic}</topic>'
+            f'<a1>{d["a1"]}</a1><d1>{d["d1"]}</d1><l2>{d["l2"]}</l2><l3>{d["l3"]}</l3>'
+            f'<tool>{d["tool"]}</tool><carton>{CARTON[0]} {CARTON[1]} {CARTON[2]}</carton>'
+            f'<deck_top>{DECK_TOP}</deck_top>{"".join(cfg)}</plugin>\n')
 
 
 def build_objects(layout, slices, out: List[str]) -> None:
@@ -1325,7 +1451,6 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh, people):
     slices = MapSlices()
     lights: List[str] = []
     body: List[str] = []
-    segments: List[dict] = []
     build_ground(W, H, body)
     build_floor(layout, W, H, body)
     build_walls(layout, slices, body)
@@ -1335,9 +1460,9 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh, people):
     build_columns(layout, graph, objects, slices, body)
     build_markings(layout, graph, body)
     build_objects(layout, slices, body)
-    build_lines(layout, slices, body, segments)
-    build_station_objects(layout, graph, slices, body, arms=True)
-    arms = build_station_arms(layout, graph, slices, body, mesh)
+    build_lines(layout, slices, body)
+    build_station_objects(layout, graph, slices, body)
+    cells = build_line_cells(layout, graph, body, line_topic, mesh) if animate else ''
     build_charging_area(layout, graph, slices, body)
     build_wall_items(layout, slices, body)
     build_office(layout, body)
@@ -1350,20 +1475,6 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh, people):
         body.append(f'<model name="factory_static"><static>true</static><link name="link">'
                     f'<visual name="baked"><geometry><mesh><uri>{escape(uri)}</uri></mesh>'
                     f'</geometry><cast_shadows>false</cast_shadows></visual></link></model>\n')
-    if not animate:
-        arms = ''
-    anim = ''
-    if animate and segments:
-        segs = ''.join(
-            f'<segment line="{s["line"]}" name="{s["name"]}">'
-            f'<start>{s["start"][0]:.3f} {s["start"][1]:.3f} {s["start"][2]:.3f}</start>'
-            f'<end>{s["end"][0]:.3f} {s["end"][1]:.3f} {s["end"][2]:.3f}</end>'
-            f'<size>{s["size"][0]} {s["size"][1]} {s["size"][2]}</size>'
-            f'<color>{s["color"][0]} {s["color"][1]} {s["color"][2]} {s["color"][3]}</color>'
-            f'<spacing>{s["spacing"]}</spacing><speed>{s["speed"]}</speed></segment>'
-            for s in segments)
-        anim = (f'  <plugin filename="amr_line_animator" name="amr_gazebo::LineAnimator">'
-                f'<topic>{line_topic}</topic>{segs}</plugin>\n')
     head = f'''<?xml version="1.0"?>
 <!-- generated by amr_fleet_manager/generate_world from factory_layout.yaml - do not edit by hand -->
 <sdf version="1.9">
@@ -1378,7 +1489,7 @@ def _world_sdf(layout, step, rtf, animate, line_topic, mesh, people):
   <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
     <render_engine>ogre2</render_engine>
   </plugin>
-{anim}{arms}{workers}  <gravity>0 0 -9.81</gravity>
+{cells}{workers}  <gravity>0 0 -9.81</gravity>
   <scene>
     <ambient>0.62 0.62 0.62 1</ambient>
     <background>0.62 0.72 0.82 1</background>

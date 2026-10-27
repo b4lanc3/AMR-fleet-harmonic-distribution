@@ -1538,7 +1538,7 @@ def build_trucks(layout, out: List[str]) -> None:
         L, W, f = TRAILER_FRONT + 0.06 - TRAILER_REAR, TRAILER_WIDTH, TRAILER_FLOOR
         cx = (TRAILER_FRONT + 0.06 + TRAILER_REAR) / 2
         H = 2.85
-        loc.box(cx, 0, f - 0.15, L, W - 0.3, 0.3, 'dark', collide=True)           # chassis
+        loc.box(cx, 0, f - 0.2, L, W - 0.3, 0.3, 'dark', collide=True)            # chassis
         loc.box(cx, 0, f - 0.025, L, W, 0.05, 'steel_light')                      # load floor
         for sy in (-1, 1):
             loc.box(cx, sy * (W / 2 - 0.025), f + H / 2, L, 0.05, H, 'truck_box')  # side walls
@@ -1551,9 +1551,10 @@ def build_trucks(layout, out: List[str]) -> None:
         loc.box(TRAILER_REAR - 0.02, 0, f - 0.12, 0.08, W, 0.2, 'yellow')         # rear bumper
         loc.box(4.3, 0, 1.6, 2.2, 2.4, 2.4, 'truck_cab', collide=True)
         loc.box(5.42, 0, 2.1, 0.02, 2.0, 0.9, 'glass')
-        for dx in (-4.5, -3.3, 3.8):
-            for dy in (-1.1, 1.1):
-                loc.cyl(dx, dy, 0.5, 0.5, 0.35, 'tyre', roll=math.pi / 2)
+        # wheels stay under the load floor of the open trailer
+        for dx in (-4.5, -3.5, 3.8):
+            for dy in (-0.95, 0.95):
+                loc.cyl(dx, dy, 0.38, 0.38, 0.3, 'tyre', roll=math.pi / 2)
         out.append(m.sdf())
 
 

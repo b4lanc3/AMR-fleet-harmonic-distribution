@@ -54,6 +54,7 @@ zones:
   - {id: B,   name: "Khu B - 4 day chuyen san xuat",  rect: [37.0, 38.5, 82.5, 65.5], color: [0.95, 0.60, 0.15]}
   - {id: C,   name: "Khu C - 4 day chuyen dong goi",  rect: [37.0, 6.5, 82.5, 33.5],  color: [0.60, 0.35, 0.90]}
   - {id: D,   name: "Khu D - Kho thanh pham",         rect: [7.5, 6.5, 33.0, 33.5],   color: [0.20, 0.75, 0.40]}
+  - {id: G,   name: "Khu G - Cong xuat hang",         rect: [8.0, 0.0, 32.0, 2.9],    color: [0.95, 0.80, 0.15]}
   - {id: PK,  name: "Bai do Tay",                     rect: [0.0, 8.5, 2.8, 63.5],    color: [0.55, 0.55, 0.55]}
   - {id: PK2, name: "Bai do Dong",                    rect: [87.2, 8.5, 90.0, 30.5],  color: [0.55, 0.55, 0.55]}
 
@@ -93,13 +94,23 @@ stations:
   - {id: C2_OUT, zone: C, type: pickup,  lane: south-, at: [56.0, 6.0],  object: line_out}
   - {id: C3_OUT, zone: C, type: pickup,  lane: south-, at: [67.0, 6.0],  object: line_out}
   - {id: C4_OUT, zone: C, type: pickup,  lane: south-, at: [78.0, 6.0],  object: line_out}
-  # --- Zone D : finished goods storage -----------------------------------------
-  - {id: D1, zone: D, type: dropoff, lane: south-, at: [28.0, 6.0],  object: storage_table}
-  - {id: D2, zone: D, type: dropoff, lane: south-, at: [22.0, 6.0],  object: storage_table}
-  - {id: D3, zone: D, type: dropoff, lane: south-, at: [16.0, 6.0],  object: storage_table}
-  - {id: D4, zone: D, type: dropoff, lane: south-, at: [10.0, 6.0],  object: storage_table}
-  - {id: D5, zone: D, type: dropoff, lane: spine+, at: [14.0, 35.0], object: storage_table}
-  - {id: D6, zone: D, type: dropoff, lane: spine+, at: [26.0, 35.0], object: storage_table}
+  # --- Zone D : finished goods warehouse, on the spine between the production
+  #     outputs and the packaging inputs.  A robot from a production line output
+  #     (westbound) turns at the west aisle and drives east past the put-away
+  #     stations (DI), then the picking stations (DO), then the packaging
+  #     inputs: a put-away and the next pick chain up without a detour. --------
+  - {id: DI1, zone: D, type: dropoff, lane: spine+, at: [12.0, 35.0], object: wh_inbound}
+  - {id: DI2, zone: D, type: dropoff, lane: spine+, at: [18.0, 35.0], object: wh_inbound}
+  - {id: DO1, zone: D, type: pickup,  lane: spine+, at: [24.0, 35.0], object: wh_outbound}
+  - {id: DO2, zone: D, type: pickup,  lane: spine+, at: [30.0, 35.0], object: wh_outbound}
+  # --- Zone G : shipping gates in the south wall in front of the warehouse
+  #     (dock door, roller table, truck outside).  The robots come from the
+  #     packaging outputs (westbound), turn at the west aisle and leave east
+  #     towards the mid aisle: the next kit pick-up is ~85 m away (gates east of
+  #     the mid aisle would be closer to the packaging lines but ~165 m from it). --
+  - {id: G1, zone: G, type: dropoff, lane: south+, at: [12.0, 4.0], object: ship_dock}
+  - {id: G2, zone: G, type: dropoff, lane: south+, at: [20.0, 4.0], object: ship_dock}
+  - {id: G3, zone: G, type: dropoff, lane: south+, at: [28.0, 4.0], object: ship_dock}
 
 # Automatic chargers: 4 dead-end docks along the north side of the spine, in
 # the gaps between the line output cells (8 robots: ~1.4 robots charging on
@@ -174,12 +185,14 @@ objects:
 # Building dressing (visual only, outside the AMR traffic area)
 decor:
   doors:                      # roller shutter doors (wall, centre along the wall, width)
-    - {wall: south, at: 20.0, width: 5.0}
-    - {wall: south, at: 60.0, width: 5.0}
-    - {wall: north, at: 20.0, width: 5.0}
+    - {wall: south, at: 12.0, width: 3.6, open: true}    # shipping gates G1-G3
+    - {wall: south, at: 20.0, width: 3.6, open: true}
+    - {wall: south, at: 28.0, width: 3.6, open: true}
+    - {wall: north, at: 20.0, width: 5.0}                # parts receiving (zone A)
   trucks:                     # trucks at the loading docks outside the hall
+    - {x: 12.0, y: -8.5, yaw: -1.5708}
     - {x: 20.0, y: -8.5, yaw: -1.5708}
-    - {x: 60.0, y: -8.5, yaw: -1.5708}
+    - {x: 28.0, y: -8.5, yaw: -1.5708}
     - {x: 20.0, y: 83.5, yaw: 1.5708}
   office: {rect: [90.4, 20.0, 104.0, 52.0], floors: 2}    # office / control room annex
   columns: {spacing_x: 12.0, spacing_y: 12.0}             # placed only where they keep clear of traffic
@@ -213,21 +226,31 @@ people:
        waypoints: [[32.0, 48.7], [38.4, 48.7], [38.4, 46.0]], dwell: [5, 0, 3]}
 
 # -----------------------------------------------------------------------------
-#  Manufacturing process (simulated MES).  Cycle:
-#   A (carton with a kit of 12 components) --AMR--> B_IN pedestal
+#  Manufacturing process (simulated MES).  Material flow, one carton per trip:
+#   A (carton with a kit of 16 components) --AMR--> B_IN pedestal
 #   the loader arm puts every component on the belt; the line machines it into a
 #   product; at the end the loader arm packs the products into a carton on the
-#   B_OUT pedestal --AMR--> C_IN pedestal -> packaging line wraps every product
-#   -> finished goods carton on the C_OUT pedestal --AMR--> D (finished goods store)
+#   B_OUT pedestal --AMR--> D inbound (DI): finished goods warehouse
+#   D outbound (DO) --AMR--> C_IN pedestal -> packaging line wraps every product
+#   -> shipping carton on the C_OUT pedestal --AMR--> G gate -> truck
 #  Every product needs `cycle_time` / `pack_time` of the line (takt) and
 #  loader_time + belt length / belt_speed + drop_time to cross it (lead time).
+#  Headless study (60 min after warm-up, robots_per_line 1.5): 16 products per
+#  carton instead of 12 cut the AMR trips per product by a quarter, so the extra
+#  warehouse trip costs nothing: 5 robots ship ~450 products/h, 6 ~560, 7 ~580,
+#  8 ~640 (old direct flow: 437 / 509 / 588 / 648); 2.0 and 2.5 were lower.
 # -----------------------------------------------------------------------------
 process:
   load_time: 8.0              # s to load a robot at a pick-up station
   unload_time: 8.0            # s to unload at a drop-off station
   supply_stations: [A1, A2, A3, A4, A5]
-  storage_stations: [D1, D2, D3, D4, D5, D6]
-  storage_capacity: 240       # products per D station before it is shipped out
+  warehouse:                  # finished goods warehouse (zone D), counted in cartons
+    inbound: [DI1, DI2]       # put-away from the production lines
+    outbound: [DO1, DO2]      # picking for the packaging lines
+    capacity: 40
+    initial_stock: 6          # the packaging lines run from t = 0
+  gates: [G1, G2, G3]         # shipping gates (zone G)
+  truck_capacity: 20          # cartons per truck, then it leaves and the next one docks
   initial_wip: true           # start with work in progress on every line (factory already running)
   loader_time: 5.0            # s: loader arm carton -> belt (and belt -> carton)
   drop_time: 5.0
@@ -240,13 +263,13 @@ process:
   robots_per_line: 1.5
   production_lines:
     - {id: B1, name: "Day chuyen SX 1", input: B1_IN, output: B1_OUT, cycle_time: 22.0,
-       products_per_kit: 12, box_capacity: 12, input_capacity: 2, output_capacity: 2, target_input: 2}
+       products_per_kit: 16, box_capacity: 16, input_capacity: 2, output_capacity: 2, target_input: 2}
     - {id: B2, name: "Day chuyen SX 2", input: B2_IN, output: B2_OUT, cycle_time: 22.0,
-       products_per_kit: 12, box_capacity: 12, input_capacity: 2, output_capacity: 2, target_input: 2}
+       products_per_kit: 16, box_capacity: 16, input_capacity: 2, output_capacity: 2, target_input: 2}
     - {id: B3, name: "Day chuyen SX 3", input: B3_IN, output: B3_OUT, cycle_time: 22.0,
-       products_per_kit: 12, box_capacity: 12, input_capacity: 2, output_capacity: 2, target_input: 2}
+       products_per_kit: 16, box_capacity: 16, input_capacity: 2, output_capacity: 2, target_input: 2}
     - {id: B4, name: "Day chuyen SX 4", input: B4_IN, output: B4_OUT, cycle_time: 22.0,
-       products_per_kit: 12, box_capacity: 12, input_capacity: 2, output_capacity: 2, target_input: 2}
+       products_per_kit: 16, box_capacity: 16, input_capacity: 2, output_capacity: 2, target_input: 2}
   packaging_lines:
     - {id: C1, name: "Day chuyen dong goi 1", input: C1_IN, output: C1_OUT, pack_time: 21.0,
        input_capacity: 2, output_capacity: 2}

@@ -22,12 +22,12 @@ def test_everything_is_reachable(graph):
 
 def test_routes_only_use_transit_nodes(graph):
     a = graph.stations['A1'].service
-    d = graph.stations['D4'].service
+    d = graph.stations['G2'].service
     path = graph.plan(d, a)
     assert path[0] == d and path[-1] == a
     for n in path[1:-1]:
         node = graph.nodes[n]
-        assert node.transit or node.group in ('A1', 'D4'), node.id
+        assert node.transit or node.group in ('A1', 'G2'), node.id
 
 
 def test_conflict_sets_are_symmetric(graph):

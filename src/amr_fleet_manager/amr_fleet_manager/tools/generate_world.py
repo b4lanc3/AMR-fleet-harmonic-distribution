@@ -342,10 +342,10 @@ def build_walls(layout, slices: MapSlices, out: List[str]) -> None:
     for name, (p0, p1) in walls.items():
         horiz = p0[1] == p1[1]
         L = (p1[0] - p0[0]) if horiz else (p1[1] - p0[1])
-        cuts = sorted((d['at'] - d['width'] / 2, d['at'] + d['width'] / 2)
+        cuts = sorted((d['at'] - d['width'] / 2, d['at'] + d['width'] / 2, bool(d.get('open')))
                       for d in doors if d['wall'] == name)
         segs, s = [], -t
-        for a, b in cuts:
+        for a, b, _ in cuts:
             segs.append((s, a))
             s = b
         segs.append((s, L + t))
@@ -377,11 +377,16 @@ def build_walls(layout, slices: MapSlices, out: List[str]) -> None:
                 else:
                     m.box(p0[0] + (0.22 if name == 'west' else -0.22), float(r), 3.8, 0.03, 0.05, 5.2,
                           'steel_light', in_map=False)
-        # doors: closed roller shutters with a yellow frame, lintel above
-        for a, b in cuts:
-            place(a, b, 0.0, 5.0, 'door', inset=0.1)
-            for r in np.arange(0.3, 5.0, 0.3):
-                place(a, b, r, r + 0.04, 'steel_light', inset=0.05, collide=False)
+        # doors: roller shutters with a yellow frame, lintel above; an open
+        # one (shipping gate) has its shutter rolled up under the lintel
+        for a, b, is_open in cuts:
+            if is_open:
+                place(a, b, 4.55, 5.0, 'door', inset=-0.15, collide=False)
+                place(a, b, 0.0, 0.03, 'steel_light', inset=0.0, collide=False)   # threshold
+            else:
+                place(a, b, 0.0, 5.0, 'door', inset=0.1)
+                for r in np.arange(0.3, 5.0, 0.3):
+                    place(a, b, r, r + 0.04, 'steel_light', inset=0.05, collide=False)
             place(a, b, 5.0, wh, 'wall_panel')
             for edge in (a, b):
                 place(edge - 0.15, edge + 0.15, 0.0, 5.2, 'door_frame', inset=-0.05)
@@ -656,6 +661,21 @@ ARM_DIMS = {'a1': 0.10, 'd1': 0.30, 'l2': 0.85, 'l3': 0.90, 'tool': 0.19}
 CARTON = (0.56, 0.40, 0.22)           # AMR load (amr_description cargo_link)
 DECK_TOP = 0.515                      # top of the load on the AMR deck
 ARM_PEDESTAL = 0.45                   # station arms stand on a pedestal
+LOADER_SCALE = 0.85                   # the loader arms (products only) are smaller
+LOADER_HOME = (0.40, 1.25)            # loader rest: this far from its base towards the slots, z
+# a move that turns the turret by more than SWING_MIN first pulls the tool in to
+# this radius around the base, turns, then reaches out (station arm, loader):
+# each arm keeps to its own half of the work cell (FactoryLines, cell_clearance)
+SAFE_RHO = (0.50, 0.60)
+SWING_MIN = 0.35                      # rad
+
+
+def loader_home(base, slot) -> Tuple[float, float, float]:
+    """Rest point of a loader arm: above the floor between its base and the
+    middle slot (same as amr_gazebo/FactoryLines)."""
+    dx, dy = slot[0] - base[0], slot[1] - base[1]
+    d = math.hypot(dx, dy) or 1.0
+    return (base[0] + dx / d * LOADER_HOME[0], base[1] + dy / d * LOADER_HOME[0], LOADER_HOME[1])
 
 
 def arm_dims(k: float = 1.0) -> Dict[str, float]:
@@ -946,6 +966,8 @@ def build_station_objects(layout, graph, slices, out: List[str]) -> None:
                     loc.box(dx, dy, h / 2, 0.04, 0.04, h, 'rack_up')
         elif kind in LINE_CELLS:
             add_work_cell(m, o)
+        elif kind in ('wh_inbound', 'wh_outbound', 'ship_dock'):
+            add_transfer_table(m, o, loc, along, across, h)
         else:   # storage table
             loc.box(0, 0, h - 0.03, along, across, 0.06, 'galv')
             for dx in (-along / 2 + 0.05, along / 2 - 0.05):
@@ -953,6 +975,49 @@ def build_station_objects(layout, graph, slices, out: List[str]) -> None:
                     loc.box(dx, dy, h / 2, 0.05, 0.05, h, 'galv')
             loc.box(0, 0, h + 0.2, 0.5, 0.42, 0.34, 'wrap')
         out.append(m.sdf())
+
+
+def add_transfer_table(m: Model, o: dict, loc: Local, along: float, across: float, h: float) -> None:
+    """Roller table the AMR unloads onto / loads from (local y = left of the
+    lane, the table stands on the right).  wh_inbound: put-away table in
+    front of the warehouse racks, wh_outbound: picking table with the next
+    cartons of finished products waiting, ship_dock: dock table, its roller
+    conveyor runs on through the open dock door into the truck."""
+    kind = o['kind']
+    loc.box(0, 0, h - 0.06, along, across, 0.04, 'steel')
+    for k in range(int(along / 0.12)):
+        loc.box(-along / 2 + 0.06 + k * 0.12, 0, h - 0.025, 0.05, across - 0.08, 0.05, 'roller',
+                in_map=False)
+    for dx in (-along / 2 + 0.05, along / 2 - 0.05):
+        for dy in (-across / 2 + 0.05, across / 2 - 0.05):
+            loc.box(dx, dy, (h - 0.08) / 2, 0.05, 0.05, h - 0.08, 'galv')
+    # side guide on the far side, sign post
+    loc.box(0, -across / 2 + 0.02, h + 0.06, along, 0.03, 0.08, 'yellow', in_map=False)
+    sign = {'wh_inbound': 'green', 'wh_outbound': 'beam_blue', 'ship_dock': 'amber'}[kind]
+    loc.box(along / 2 + 0.12, -across / 2, 1.1, 0.05, 0.05, 2.2, 'steel')
+    loc.box(along / 2 + 0.12, -across / 2, 2.15, 0.04, 0.55, 0.28, sign, in_map=False)
+    if kind == 'wh_outbound':
+        # two more cartons waiting on the upper level of the flow rack
+        loc.box(0, -0.05, h + 0.55, along, across * 0.8, 0.03, 'steel', in_map=False)
+        for dx in (-0.3, 0.3):
+            loc.box(dx, -0.05, h + 0.68, 0.5, 0.36, 0.22, 'carton', in_map=False)
+        for dx in (-along / 2 + 0.05, along / 2 - 0.05):
+            loc.box(dx, -across / 2 + 0.05, h + 0.3, 0.05, 0.05, 0.6, 'galv', in_map=False)
+    elif kind == 'ship_dock':
+        # conveyor from the table through the door to the trailer, dock plate
+        x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
+        out_len = y0 + 2.6                      # the hall wall is at y = 0, the trailer at -2.5
+        m.box(cx, y0 - out_len / 2, h - 0.06, 0.8, out_len, 0.04, 'steel')
+        for k in range(int(out_len / 0.12)):
+            m.box(cx, y0 - 0.06 - k * 0.12, h - 0.025, 0.72, 0.05, 0.05, 'roller', in_map=False)
+        for yy in np.arange(y0 - 0.3, -2.4, -0.9):
+            for dx in (-0.35, 0.35):
+                m.box(cx + dx, float(yy), (h - 0.08) / 2, 0.05, 0.05, h - 0.08, 'galv',
+                      in_map=yy > 0)
+        m.box(cx, -1.4, 0.02, 3.0, 2.0, 0.04, 'steel_light', in_map=False)    # dock apron
+        # safety bollards both sides of the conveyor inside the door
+        for dx in (-1.25, 1.25):
+            m.cyl(cx + dx, 0.45, 0.55, 0.08, 1.1, 'yellow', collide=True)
 
 
 def _link_model(name: str, pose, geometry: str) -> str:
@@ -974,10 +1039,10 @@ CARTON_STYLE = {'kit': ('carton', 'bin_blue'), 'semi': ('carton', 'dark'),
                 'fg': ('carton_dark', 'green')}
 # product looks along the lines: (size, material).  Lite: every moving part is
 # ONE draw call (a single box or a single-material mesh) - the cameras and
-# lidars of the fleet render them all.
-ITEM_LOOK = {'part': ((0.10, 0.09, 0.06), 'steel_light'),
-             'product': ((0.10, 0.09, 0.08), 'machine_orange'),
-             'wrapped': ((0.11, 0.10, 0.09), 'white')}
+# lidars of the fleet render them all.  16 per carton: 4 x 4 cells of 0.13 x 0.09 m
+ITEM_LOOK = {'part': ((0.10, 0.078, 0.06), 'steel_light'),
+             'product': ((0.10, 0.078, 0.08), 'machine_orange'),
+             'wrapped': ((0.11, 0.084, 0.09), 'white')}
 TRAY_WALL = 0.015
 
 
@@ -1013,41 +1078,43 @@ def _item_geometry(look: str) -> str:
     return _vis('body', size, body)
 
 
-def add_robot_arm_pedestal(m: Model, base) -> None:
+def add_robot_arm_pedestal(m: Model, base, k: float = 1.0) -> None:
     x, y, top = base
-    m.box(x, y, 0.02, 0.56, 0.56, 0.04, 'machine_dark')
-    m.cyl(x, y, top / 2, 0.17, top, 'machine_dark')
-    for dx in (-0.22, 0.22):
-        for dy in (-0.22, 0.22):
+    m.box(x, y, 0.02, 0.56 * k, 0.56 * k, 0.04, 'machine_dark')
+    m.cyl(x, y, top / 2, 0.17 * k, top, 'machine_dark')
+    for dx in (-0.22 * k, 0.22 * k):
+        for dy in (-0.22 * k, 0.22 * k):
             m.cyl(x + dx, y + dy, 0.05, 0.025, 0.03, 'steel_light')
-    draw_parts(m, arm_links()['base'], base)
+    draw_parts(m, arm_links(k)['base'], base)
 
 
 def add_work_cell(m: Model, o: dict) -> None:
-    """Static part of a line work cell: the 3-slot pedestal, the pedestals of
-    the station arm and of the loader arm, the stack of folded cartons and a
-    sign post (moving parts: build_line_cells)."""
+    """Static part of a line work cell: the 3-slot pedestal (a row parallel
+    to the lane), the pedestals of the station arm (AMR side) and of the
+    loader arm (belt side), the stack of folded cartons and a sign post
+    (moving parts: build_line_cells)."""
     yaw = o['yaw']
     pts = [cell_point(o, u, v) for u, v in CELL_SLOTS]
     (ax, ay), (bx, by) = pts[0], pts[-1]
     cx, cy = (ax + bx) / 2, (ay + by) / 2
-    length = math.hypot(bx - ax, by - ay) + CARTON[1] + 0.25      # slots along v
+    length = math.hypot(bx - ax, by - ay) + CARTON[0] + 0.20      # slots along u
+    width = CARTON[1] + 0.16
     loc = Local(m, cx, cy, yaw)
     top = PEDESTAL_TOP
-    # pedestal: v runs to the right of the lane = -y of the Local frame
-    loc.box(0, 0, top - 0.025, CARTON[0] + 0.12, length, 0.05, 'machine_blue', collide=True)
-    for dv in (-length / 2 + 0.06, length / 2 - 0.06):
-        for du in (-CARTON[0] / 2, CARTON[0] / 2):
+    # pedestal: u runs along the lane = x of the Local frame
+    loc.box(0, 0, top - 0.025, length, width, 0.05, 'machine_blue', collide=True)
+    for du in (-length / 2 + 0.06, length / 2 - 0.06):
+        for dv in (-width / 2 + 0.04, width / 2 - 0.04):
             loc.box(du, dv, (top - 0.05) / 2, 0.05, 0.05, top - 0.05, 'galv')
-    loc.box(0, 0, 0.12, CARTON[0], length - 0.12, 0.03, 'galv', in_map=False)
+    loc.box(0, 0, 0.12, length - 0.12, width - 0.08, 0.03, 'galv', in_map=False)
     for (px, py) in pts:                                   # slot outlines on the top
         Local(m, px, py, yaw).box(0, 0, top + 0.002, CARTON[0] + 0.04, CARTON[1] + 0.04, 0.004,
                                   'yellow')
         Local(m, px, py, yaw).box(0, 0, top + 0.004, CARTON[0] - 0.02, CARTON[1] - 0.02, 0.004,
                                   'machine_blue')
-    for u, v in (CELL_ARM, CELL_LOADER):
+    for (u, v), k in ((CELL_ARM, 1.0), (CELL_LOADER, LOADER_SCALE)):
         x, y = cell_point(o, u, v)
-        add_robot_arm_pedestal(m, (x, y, ARM_PEDESTAL))
+        add_robot_arm_pedestal(m, (x, y, ARM_PEDESTAL), k)
     # stack of folded cartons on a small cart (spent ones in, new ones out)
     x, y = cell_point(o, *CELL_STACK)
     st = Local(m, x, y, yaw)
@@ -1057,8 +1124,8 @@ def add_work_cell(m: Model, o: dict) -> None:
             st.box(du, dv, 0.15, 0.04, 0.04, 0.28, 'steel')
     for k in range(5):
         st.box(0, 0, 0.335 + k * 0.03, 0.58, 0.42, 0.025, 'carton' if k % 2 else 'carton_dark')
-    # sign post on the corner of the cell away from the AMR
-    x, y = cell_point(o, -1.45, 2.75)
+    # sign post on the corner of the cell away from the AMR and the arms
+    x, y = cell_point(o, -1.65, 3.10)
     m.box(x, y, 1.2, 0.05, 0.05, 2.4, 'steel')
     Local(m, x, y, yaw).box(0, 0, 2.3, 0.6, 0.04, 0.3,
                             'machine_orange' if o['kind'] == 'line_in' else 'pad_station')
@@ -1067,10 +1134,10 @@ def add_work_cell(m: Model, o: dict) -> None:
 STACK_TOP = 0.335 + 5 * 0.03
 
 
-def _arm_geometry(mesh, prefix: str, color: str, tool: str) -> Dict[str, str]:
+def _arm_geometry(mesh, prefix: str, color: str, tool: str, k: float = 1.0) -> Dict[str, str]:
     """Visual of every moving arm link (one OBJ per link with a mesh)."""
     # one material per link: one draw call
-    links = {k: [p[:-1] + (color,) for p in parts] for k, parts in arm_links(1.0, color, tool).items()}
+    links = {n: [p[:-1] + (color,) for p in parts] for n, parts in arm_links(k, color, tool).items()}
     geometry = {}
     for name in ('turret', 'upper', 'fore', 'tool'):
         if mesh:
@@ -1091,9 +1158,9 @@ def _arm_geometry(mesh, prefix: str, color: str, tool: str) -> Dict[str, str]:
     return geometry
 
 
-def _posed_arm(name: str, base, tip, yaw: float, geometry: Dict[str, str]) -> str:
+def _posed_arm(name: str, base, tip, yaw: float, geometry: Dict[str, str], k: float = 1.0) -> str:
     out = []
-    for link, (o, R) in arm_frames(base, tip, yaw).items():
+    for link, (o, R) in arm_frames(base, tip, yaw, k).items():
         if link not in geometry:
             continue
         rpy = (math.atan2(R[2, 1], R[2, 2]), -math.asin(max(-1.0, min(1.0, R[2, 0]))),
@@ -1111,6 +1178,10 @@ def line_cells(layout: dict, graph) -> List[dict]:
     process = layout.get('process', {}) or {}
     takt = {c['id']: float(c.get('cycle_time', 22.0)) for c in process.get('production_lines', [])}
     takt.update({c['id']: float(c.get('pack_time', 21.0)) for c in process.get('packaging_lines', [])})
+    # products per carton: the production line's box, the packer's pallet (= box)
+    box = {c['id']: int(c.get('box_capacity', 12)) for c in process.get('production_lines', [])}
+    size = max(box.values() or [12])
+    box.update({c['id']: int(c.get('pallet_capacity', size)) for c in process.get('packaging_lines', [])})
     cells = {o['station']: o for o in station_objects(layout, graph) if o['kind'] in LINE_CELLS}
     ends = {}
     for c in process.get('production_lines', []) + process.get('packaging_lines', []):
@@ -1126,7 +1197,7 @@ def line_cells(layout: dict, graph) -> List[dict]:
         t_load, t_belt, t_drop = line_lead_time(process, ln)
         lead = t_load + t_belt + t_drop
         n_way = int(math.ceil(lead / takt.get(lid, 20.0))) + 2
-        cap = 12
+        cap = box.get(lid, 12)
         out.append({
             'id': lid, 'kind': 'production' if prod else 'packaging',
             'belt': ((x, yi - s * BELT_MARGIN), (x, yo + s * BELT_MARGIN)),
@@ -1146,7 +1217,7 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
     if not lines:
         return ''
     station_geo = _arm_geometry(mesh, 'arm', 'robot_orange', 'vacuum')
-    loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer')
+    loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer', LOADER_SCALE)
     hidden = (*HIDDEN, 0, 0, 0)
     trays = {st: _tray_geometry(st, mesh) for st in CARTON_STYLE}
     cfg = []
@@ -1166,9 +1237,8 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
             service = o['service']
             mid = cell_point(o, CELL_SLOTS[0][0] / 2, CELL_SLOTS[0][1] / 2)
             out.append(_posed_arm(f'fl_{sid}_arm', arm, (*mid, 1.25), yaw, station_geo))
-            belt = L['belt'][0] if side == 'in' else L['belt'][1]
-            lm = ((slots[1][0] + belt[0]) / 2, (slots[1][1] + belt[1]) / 2, 1.3)
-            out.append(_posed_arm(f'fl_{sid}_ld', loader, lm, yaw, loader_geo))
+            out.append(_posed_arm(f'fl_{sid}_ld', loader, loader_home(loader, slots[1]), yaw,
+                                  loader_geo, LOADER_SCALE))
             for k in range(len(slots)):
                 out.append(_link_model(f'fl_{sid}_box{k}', hidden, _carton_geometry(style)))
                 out.append(_link_model(f'fl_{sid}_tray{k}', hidden, trays[style]))
@@ -1195,7 +1265,9 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
     return (f'  <plugin filename="amr_factory_lines" name="amr_gazebo::FactoryLines">'
             f'<topic>{topic}</topic>'
             f'<a1>{d["a1"]}</a1><d1>{d["d1"]}</d1><l2>{d["l2"]}</l2><l3>{d["l3"]}</l3>'
-            f'<tool>{d["tool"]}</tool><carton>{CARTON[0]} {CARTON[1]} {CARTON[2]}</carton>'
+            f'<tool>{d["tool"]}</tool><loader_scale>{LOADER_SCALE}</loader_scale>'
+            f'<loader_home>{LOADER_HOME[0]} {LOADER_HOME[1]}</loader_home>'
+            f'<safe_rho>{SAFE_RHO[0]} {SAFE_RHO[1]}</safe_rho><swing_min>{SWING_MIN}</swing_min><carton>{CARTON[0]} {CARTON[1]} {CARTON[2]}</carton>'
             f'<deck_top>{DECK_TOP}</deck_top>{"".join(cfg)}</plugin>\n')
 
 

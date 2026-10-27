@@ -3,6 +3,9 @@
 Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong một nhà máy hoàn chỉnh 140 m × 75 m, chạy trên
 **ROS 2 Jazzy + Gazebo Harmonic** (tương thích Jetty), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
 
+> Nhánh **`jazzy`**: ROS 2 Jazzy (Ubuntu 24.04) + Gazebo Harmonic. Bản cho ROS 2 Humble (Ubuntu 22.04): nhánh
+> [`humble`](../../tree/humble). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch), chỉ khác hướng dẫn.
+
 * **Nhà máy đầy đủ**: tường panel cách nhiệt, dải cửa sổ, cửa cuộn, cột thép, dầm mái, đèn (có nguồn sáng thật),
   sàn epoxy chia khu và vạch làn, kệ đầy thùng/bin linh kiện, kệ pallet thành phẩm, văn phòng 2 tầng, xe tải ở dock,
   bình cứu hoả, biển báo… và **16 dây chuyền**: 8 dây chuyền sản xuất + 8 dây chuyền đóng gói. Mỗi đầu dây chuyền
@@ -247,7 +250,7 @@ Ubuntu 24.04 + ROS 2 Jazzy (đi kèm Gazebo Harmonic qua `ros_gz`):
 sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-xacro ros-jazzy-navigation2 \
      ros-jazzy-nav2-rviz-plugins ros-jazzy-robot-state-publisher python3-colcon-common-extensions
 mkdir -p ~/amr_ws && cd ~/amr_ws
-git clone <repo này> src/AMR-fleet-harmonic-distribution     # hoặc copy thư mục src/
+git clone -b jazzy https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -256,19 +259,10 @@ source install/setup.bash
 `amr_gazebo` biên dịch system C++ `FactoryLines` (work cell, thùng, sản phẩm) và `Pedestrians` (gz-sim 8); hook môi trường tự thêm
 `GZ_SIM_SYSTEM_PLUGIN_PATH` và `GZ_SIM_RESOURCE_PATH` khi `source install/setup.bash`.
 
-**Ubuntu 22.04 + ROS 2 Humble + Gazebo Harmonic** (không cần nâng lên 24.04): cài `gz-harmonic` từ
-packages.osrfoundation.org, build `ros_gz` nhánh `humble` với `GZ_VERSION=harmonic` (hoặc `ros-humble-ros-gzharmonic`),
-cài `ros-humble-opennav-docking ros-humble-opennav-docking-msgs` (hoặc build `opennav_docking` nhánh `humble` +
-`nav2_graceful_controller` từ source). `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi không có gói `*_vendor`,
-`navigation.launch.py` tự đổi tham số `collision_monitor` sang định dạng Nav2 1.1 khi `ROS_DISTRO=humble`
-(points dạng mảng phẳng, `max_points`, một `source_timeout` chung). Khác biệt còn lại trên Humble: không có
-EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
-`collision_monitor_state` (trường `obstacle_stop` trên dashboard luôn false).
+**Ubuntu 22.04 + ROS 2 Humble**: dùng nhánh [`humble`](../../tree/humble) (cài Gazebo Harmonic, `ros_gz` và
+`opennav_docking` cho Humble).
 
-**Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Distribution/run_fleet.sh [số robot]`
-(mặc định 7, có cửa sổ Gazebo + RViz, tự dọn tiến trình cũ), tắt bằng `~/AMR-Fleet-Distribution/stop_fleet.sh`.
-`sim_env.bash` tách DDS của mô phỏng khỏi robot thật (CycloneDDS chỉ trên loopback, `ROS_DOMAIN_ID=42`). GUI Gazebo
-được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
+GUI Gazebo được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
 
 **Work cell ở đầu dây chuyền** (system `amr_factory_lines`): mỗi trạm `*_IN` / `*_OUT` có bệ 3 ô, một tay máy trạm 6
 trục (AMR ↔ bệ) và một tay máy nạp liệu (bệ ↔ băng tải). Tay máy trạm đồng bộ với AMR qua `/<amr>/cargo_lift` và báo

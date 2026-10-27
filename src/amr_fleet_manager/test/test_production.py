@@ -47,10 +47,10 @@ def test_auto_lines_follow_the_fleet_size(layout):
     assert mes.active_lines == 3
     assert [ln.id for ln in mes.lines.values() if ln.active] == ['B1', 'B2', 'B3']
     assert sum(pk.active for pk in mes.packers.values()) == 3
-    mes.set_fleet_size(15, 1.0)
-    assert mes.active_lines == 8              # more robots: at once
+    mes.set_fleet_size(8, 1.0)
+    assert mes.active_lines == 4              # more robots: at once
     mes.set_fleet_size(5, 2.0)
-    assert mes.active_lines == 8              # fewer: only after a while
+    assert mes.active_lines == 4              # fewer: only after a while
     mes.set_fleet_size(5, 30.0)
     assert mes.active_lines == 3
     # a switched off line gets no kits, its packer no cartons

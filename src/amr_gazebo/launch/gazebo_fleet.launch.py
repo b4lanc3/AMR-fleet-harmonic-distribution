@@ -103,7 +103,7 @@ def launch_setup(context, *args, **kwargs):
     graph = build_graph(layout)
     poses = spawn_poses(graph, n)
     ids = [robot_name(i) for i in range(n)]
-    tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet')
+    tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet_lite')
     os.makedirs(tmp, exist_ok=True)
 
     world = lc('world')
@@ -171,7 +171,7 @@ def generate_launch_description():
     share_models = os.path.join(get_package_share_directory('amr_gazebo'), 'models')
     plugins = os.path.join(get_package_prefix('amr_gazebo'), 'lib', 'amr_gazebo')
     return LaunchDescription([
-        DeclareLaunchArgument('num_robots', default_value='12', description='number of AMRs (<= 22)'),
+        DeclareLaunchArgument('num_robots', default_value='6', description='number of AMRs (<= 22)'),
         DeclareLaunchArgument('layout_file', default_value='', description='factory_layout.yaml'),
         DeclareLaunchArgument('world', default_value='', description='use this SDF instead of generating one'),
         DeclareLaunchArgument('gui', default_value='true', description='start the Gazebo GUI'),

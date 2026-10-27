@@ -1,6 +1,6 @@
 """Complete AMR fleet simulation.
 
-  # Gazebo Harmonic + Nav2/AMCL per robot + RViz + dashboard (http://localhost:8080)
+  # Gazebo Harmonic + Nav2/AMCL per robot + RViz + dashboard (http://localhost:8081)
   ros2 launch amr_bringup bringup.launch.py num_robots:=12
 
   # Gazebo with the built-in path follower on ground-truth odometry (lighter)
@@ -100,7 +100,7 @@ def launch_setup(context, *args, **kwargs):
                           'driver': 'nav2' if nav2 else 'simple'}.items()))
 
     if lc('rviz').lower() == 'true':
-        tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet')
+        tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet_lite')
         os.makedirs(tmp, exist_ok=True)
         cfg = os.path.join(tmp, f'fleet_{n}.rviz')
         cam = ids[0] if gazebo and lc('camera') == 'true' and lc('bridge_cameras') != 'none' else ''
@@ -116,7 +116,7 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='gazebo', description='gazebo | kinematic'),
-        DeclareLaunchArgument('num_robots', default_value='12', description='10..15 recommended'),
+        DeclareLaunchArgument('num_robots', default_value='6', description='lite factory: 5..8 recommended'),
         DeclareLaunchArgument('navigation', default_value='nav2',
                               description='nav2 (AMCL + Nav2 controller per robot, Gazebo) | '
                                           'simple (built-in follower, ground-truth odometry)'),
@@ -137,7 +137,7 @@ def generate_launch_description():
         DeclareLaunchArgument('agents', default_value='single_process',
                               description='single_process (simulation) | per_robot (like real AMRs)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
-        DeclareLaunchArgument('dashboard_port', default_value='8080'),
+        DeclareLaunchArgument('dashboard_port', default_value='8081'),
         DeclareLaunchArgument('dashboard_host', default_value='0.0.0.0',
                               description='127.0.0.1 = only this machine can open the dashboard'),
         OpaqueFunction(function=launch_setup),

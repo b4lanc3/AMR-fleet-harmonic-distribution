@@ -4,10 +4,10 @@ from amr_fleet_manager.core.graph import INTERSECTION, YIELD
 def test_layout_has_required_elements(layout, graph):
     zones = {z['id'] for z in layout['zones']}
     assert {'A', 'B', 'C', 'D'} <= zones
-    assert len(graph.chargers) >= 6
+    assert len(graph.chargers) >= 4
     # chargers spread along the spine: no robot is far from a dock
     xs = sorted(graph.nodes[i].x for i in graph.chargers.values())
-    assert max(b - a for a, b in zip(xs, xs[1:])) < 20.0
+    assert max(b - a for a, b in zip(xs, xs[1:])) < 25.0
     assert len(graph.parking) >= 15
     assert len(graph.yield_bays) > 10
     assert not graph.build_warnings

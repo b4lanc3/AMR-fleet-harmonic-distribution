@@ -73,7 +73,7 @@ using gz::math::Vector3d;
 using gz::sim::Entity;
 using gz::sim::kNullEntity;
 
-constexpr double kHidden = -20.0;        // z of hidden models
+const Vector3d kHidden(-1000.0, -1000.0, -50.0);   // hidden models: beyond every sensor range
 constexpr double kAbove = 0.30;          // approach height above a pick / place
 constexpr double kSpeed = 0.9;           // station arm tool tip speed [m/s]
 constexpr double kWaitTimeout = 14.0;    // s waiting for the AMR's lift
@@ -952,7 +952,7 @@ private:
 
   Pose3d Hidden() const
   {
-    return Pose3d(0, 0, kHidden, 0, 0, 0);
+    return Pose3d(kHidden, Quaterniond::Identity);
   }
 
   void Place(gz::sim::EntityComponentManager &_ecm, Entity _e, const Pose3d &_p, Pose3d &_last)

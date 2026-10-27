@@ -66,7 +66,7 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('num_robots', default_value='12'),
+        DeclareLaunchArgument('num_robots', default_value='6'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('layout_file', default_value=''),
         DeclareLaunchArgument('priority_mode', default_value='task',
@@ -80,7 +80,7 @@ def generate_launch_description():
                               description='loading / unloading ends when the Gazebo station arm '
                                           'hands over (true in Gazebo)'),
         DeclareLaunchArgument('dashboard', default_value='true'),
-        DeclareLaunchArgument('dashboard_port', default_value='8080'),
+        DeclareLaunchArgument('dashboard_port', default_value='8081'),
         DeclareLaunchArgument('dashboard_host', default_value='0.0.0.0',
                               description='127.0.0.1: dashboard (which can create tasks and '
                                           'pause the fleet) only reachable from this machine'),

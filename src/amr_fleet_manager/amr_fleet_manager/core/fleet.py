@@ -870,19 +870,28 @@ class FleetCore:
         r.next_task = None
 
     # ============================================================== demo
-    def start_demo_head_on(self, lane: str = 'link') -> Tuple[bool, str]:
+    def start_demo_head_on(self, lane: Optional[str] = None) -> Tuple[bool, str]:
         """Send two idle robots to both ends of a two-way lane, then let them
         drive towards each other at the same time: they detect each other,
-        both shift to their right, pass and keep their route without stopping."""
+        both shift to their right, pass and keep their route without stopping.
+        lane None: the two-way lane with the longest stretch to pass on."""
         if self.demo is not None:
             return False, 'Kịch bản demo đang chạy'
-        bays = sorted((i for i in self.g.yield_bays if self.g.nodes[i].id.startswith(f'Y.{lane}.')),
-                      key=lambda i: (self.g.nodes[i].x, self.g.nodes[i].y))
-        if len(bays) < 3:
-            return False, f'Làn {lane} không có đủ yield bay'
-        ends = self._demo_ends(lane, bays)
-        if ends is None:
-            return False, f'Làn {lane} không có đoạn đủ dài để hai xe tránh nhau'
+        best = None
+        lanes = [lane] if lane else [k for k, two in self.g.lane_two_way.items() if two]
+        for ln in lanes:
+            bays = sorted((i for i in self.g.yield_bays if self.g.nodes[i].id.startswith(f'Y.{ln}.')),
+                          key=lambda i: (self.g.nodes[i].x, self.g.nodes[i].y))
+            if len(bays) < 3:
+                continue
+            e = self._demo_ends(ln, bays)
+            if e is not None:
+                d = math.dist(self.g.nodes[e[0]].xy, self.g.nodes[e[1]].xy)
+                if best is None or d > best[0]:
+                    best = (d, ln, e)
+        if best is None:
+            return False, 'Không có làn 2 chiều đủ dài để hai xe tránh nhau'
+        _, lane, ends = best
         free = [r for r in self.robots.values() if self._available(r) and r.state != CHARGING]
         if len(free) < 2:
             return False, 'Cần ít nhất 2 robot rảnh (đang đỗ) để chạy demo'

@@ -1,14 +1,19 @@
-# AMR Fleet Harmonic Distribution
+# AMR Fleet Harmonic Distribution - BẢN NHẸ (Lite)
 
-Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong một nhà máy hoàn chỉnh 140 m × 75 m, chạy trên
+> **Bản nhẹ** cho máy cấu hình vừa phải: nhà máy **90 m × 75 m**, **4 dây chuyền sản xuất + 4 dây chuyền đóng gói**,
+> **5–8 AMR**, 4 dock sạc, các phần chuyển động (tay máy, thùng, sản phẩm) mỗi phần chỉ 1 draw call. Đo trên laptop
+> RTX 4060: 6 robot + GUI Gazebo + RViz chạy **RTF ≈ 1.0**. Bản đầy đủ (140 × 75 m, 8 + 8 dây chuyền, 5–15 AMR) ở
+> nhánh [`humble`](../../tree/humble) / [`jazzy`](../../tree/jazzy); hai bản phát triển độc lập.
+
+Mô phỏng **đội 5–8 AMR** vận chuyển nội bộ trong một nhà máy hoàn chỉnh 90 m × 75 m, chạy trên
 **ROS 2 Humble + Gazebo Harmonic** (Ubuntu 22.04), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
 
-> Nhánh **`humble`**: ROS 2 Humble (Ubuntu 22.04) + Gazebo Harmonic. Bản cho ROS 2 Jazzy (Ubuntu 24.04): nhánh
-> [`jazzy`](../../tree/jazzy). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch), chỉ khác hướng dẫn.
+> Nhánh **`lite-humble`**: ROS 2 Humble (Ubuntu 22.04) + Gazebo Harmonic. Bản nhẹ cho ROS 2 Jazzy (Ubuntu 24.04):
+> nhánh [`lite-jazzy`](../../tree/lite-jazzy). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch).
 
 * **Nhà máy đầy đủ**: tường panel cách nhiệt, dải cửa sổ, cửa cuộn, cột thép, dầm mái, đèn (có nguồn sáng thật),
   sàn epoxy chia khu và vạch làn, kệ đầy thùng/bin linh kiện, kệ pallet thành phẩm, văn phòng 2 tầng, xe tải ở dock,
-  bình cứu hoả, biển báo… và **16 dây chuyền**: 8 dây chuyền sản xuất + 8 dây chuyền đóng gói. Mỗi đầu dây chuyền
+  bình cứu hoả, biển báo… và **8 dây chuyền**: 4 dây chuyền sản xuất + 4 dây chuyền đóng gói. Mỗi đầu dây chuyền
   có một work cell: tay máy trạm gắp thùng giữa AMR và **bệ 3 ô** cạnh dây chuyền, tay máy nạp liệu lấy **từng sản
   phẩm** trong thùng đặt lên băng tải thật, sản phẩm chạy qua quy trình rồi được xếp vào thùng trên bệ đầu ra và
   chính thùng đó được tay máy gắp lên AMR. Mọi thùng và sản phẩm trong Gazebo khớp đúng số liệu của MES.
@@ -16,10 +21,10 @@ Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong
   (Regulated Pure Pursuit + local costmap từ lidar 2D và camera 3D) lái robot theo đoạn route được cấp quyền,
   `collision_monitor` dừng/giảm tốc theo lidar + camera 3D.
 * **Fleet manager**: giao task theo MES mô phỏng, điều phối giao thông theo **hàng ưu tiên tính theo task**, robot
-  ưu tiên thấp né rồi bám lại route cũ, gỡ deadlock, 6 dock sạc rải dọc trục chính, sạc luân phiên; số dây
+  ưu tiên thấp né rồi bám lại route cũ, gỡ deadlock, 4 dock sạc rải dọc trục chính, sạc luân phiên; số dây
   chuyền chạy tự điều chỉnh theo số robot (`active_lines: auto`).
-* **Dashboard web** (http://localhost:8080): robot số mấy đang làm gì, đi route nào, ETA, task tiếp theo, hàng ưu
-  tiên, pin, đang chờ hoặc nhường ai; bản đồ trực tiếp, 16 dây chuyền, trạm sạc, hàng đợi task, nhật ký điều phối.
+* **Dashboard web** (http://localhost:8081): robot số mấy đang làm gì, đi route nào, ETA, task tiếp theo, hàng ưu
+  tiên, pin, đang chờ hoặc nhường ai; bản đồ trực tiếp, 8 dây chuyền, trạm sạc, hàng đợi task, nhật ký điều phối.
 
 ![Dashboard: bản đồ trực tiếp, chi tiết AMR-02 (task, lộ trình, ETA, task tiếp theo, lý do hàng ưu tiên)](docs/dashboard.png)
 
@@ -36,9 +41,9 @@ Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong
 | Yêu cầu | Cách đáp ứng |
 |---|---|
 | Fleet ≥ 10–15 AMR | `num_robots:=12` (mặc định), 30 chỗ đỗ nên tối đa 30 robot. Đã kiểm thử 10/12/15 robot (mô phỏng headless 30 phút) và Gazebo + Nav2 với 2–3 robot (container không GPU) |
-| Trạm sạc tự động cho cả đội | 6 dock (CH1–CH6) rải dọc trục chính, mỗi dock nằm giữa hai dây chuyền; hàng đợi sạc, sạc tranh thủ luân phiên (≤ 40 % đội đi sạc cùng lúc), nhường dock cho robot pin thấp |
-| Nhà máy rộng, 4 khu | Khu A kho linh kiện (5 trạm cấp) · Khu B **8 dây chuyền sản xuất** · Khu C **8 dây chuyền đóng gói** · Khu D kho thành phẩm (6 trạm) |
-| Mô phỏng cả dây chuyền | 8 + 8 dây chuyền, mỗi dây có đủ trạm máy và 2 work cell (xem mục 2). System `FactoryLines` vẽ đúng từng thùng, từng sản phẩm theo MES: gắp thùng lên bệ, nạp từng SP lên băng, SP đổi dạng qua quy trình, xếp vào thùng đầu ra |
+| Trạm sạc tự động cho cả đội | 4 dock (CH1–CH4) dọc phía Bắc trục chính, giữa các đầu ra dây chuyền; hàng đợi sạc, sạc tranh thủ luân phiên (≤ 40 % đội đi sạc cùng lúc), nhường dock cho robot pin thấp |
+| Nhà máy rộng, 4 khu | Khu A kho linh kiện (5 trạm cấp) · Khu B **4 dây chuyền sản xuất** · Khu C **4 dây chuyền đóng gói** · Khu D kho thành phẩm (6 trạm) |
+| Mô phỏng cả dây chuyền | 4 + 4 dây chuyền, mỗi dây có đủ trạm máy và 2 work cell (xem mục 2). System `FactoryLines` vẽ đúng từng thùng, từng sản phẩm theo MES: gắp thùng lên bệ, nạp từng SP lên băng, SP đổi dạng qua quy trình, xếp vào thùng đầu ra |
 | Map nhà máy đầy đủ (tường, sàn, hàng hoá, đèn…) | World sinh từ layout: ~5000 chi tiết (gộp thành mesh để render nhanh), 15 đèn điểm + đèn trần phát sáng. Bản đồ AMCL cắt đúng ở độ cao lidar |
 | Chu trình sản xuất | A (kit linh kiện) → B_IN → dây chuyền SX → SP chưa đóng gói xếp vào **thùng** ở B_OUT → C_IN → đóng gói từng SP → C_OUT → D |
 | Chạy Nav2 và AMCL | Mỗi robot: AMCL + controller_server + collision_monitor (+ planner/behavior/bt_navigator nếu `nav2_full_stack:=true`), một map_server chung |
@@ -56,7 +61,7 @@ Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong
               └───────┬───────────────────────────┬──────────────────────────────┬────────────┘
                       │ generate_world             │                              │
    Gazebo Harmonic ◄──┤ world SDF + mesh           │ bản đồ AMCL (cắt ở           │ đồ thị giao thông
-   ├ nhà máy + 16 dây chuyền (FactoryLines)         │ độ cao lidar)                │
+   ├ nhà máy + 8 dây chuyền (FactoryLines)          │ độ cao lidar)                │
    ├ N × AMR (URDF: diff-drive, lidar, RGB-D,       ▼                              ▼
    │   khay nâng hàng)                          map_server ──/map──► AMCL     fleet_manager
    └ ros_gz_bridge ──scan, odom, points──►     ┌──────── Nav2 / robot ───────┐ ├ MES mô phỏng → task
@@ -64,14 +69,14 @@ Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong
           │ cmd_vel                            │ controller_server (RPP +     │ ├ traffic control: đặt chỗ node,
           │ cargo_lift                         │   local costmap lidar+RGB-D) │ │  ưu tiên theo task, né + bám
           │ /factory/line_state                │ collision_monitor            │ │  lại route cũ, gỡ deadlock
-          │                                    │   cmd_vel_nav → cmd_vel ─────┼─┘ ├ pin / trạm sạc 6 dock
+          │                                    │   cmd_vel_nav → cmd_vel ─────┼─┘ ├ pin / trạm sạc 4 dock
           │                                    └──────────▲───────────────────┘   └ /fleet/state, markers …
           │                                               │ FollowPath (đoạn route       │
           │                                               │ đã cấp quyền) + speed_limit  │
           │                                     robot_agent × N ◄──/amr_XX/fleet/route──┘
           │                                     (pose AMCL, pin, khay nâng) ──status──►
           │                                               RViz2 ◄── /fleet/markers, Nav2 topics
-          └────────────────────────────────────── dashboard (web :8080) ◄── /fleet/snapshot_json
+          └────────────────────────────────────── dashboard (web :8081) ◄── /fleet/snapshot_json
 ```
 
 **Phân vai Nav2 ↔ fleet manager.** Fleet manager quyết định robot được đi *đâu* và *tới đâu* (đặt chỗ node trên đồ
@@ -96,19 +101,17 @@ trong unit test.
 ## 2. Nhà máy và chu trình sản xuất
 
 ```
- y=75 ┌──────────── tường panel · cửa sổ · 2 cửa cuộn phía Bắc (xe tải) ─────────────────────────────────┐ văn
-      │P ═ Đường Bắc y=70: 2 làn 1 chiều ═ A4 ═ A5 ═ B1_IN … B4_IN ════════ B5_IN … B8_IN ══════════════ P│ phòng
-      │P   ┌ Khu A: kho linh kiện ┐  ┆  ┌─ Khu B: 8 dây chuyền SẢN XUẤT (x = 43…126, cách 11 m) ───────┐ P│ 2
-      │A3  │ 5 kệ đầy bin/thùng    │  ┆  │ B1  B2  B3  B4        ┆ Ngõ    B5  B6  B7  B8              │ P│ tầng
-      │A2  │                       │  ┆  │ (băng tải, CNC, robot hàn, lắp ráp, QC, work cell 2 đầu)  │ P│ (x>140)
-      │A1  └───────────────────────┘  ┆  └ B*_OUT xen kẽ dock sạc CH1…CH6 dọc phía Bắc trục chính ───┘ P│
-      │ ═══ Trục chính y=36: 2 làn 1 chiều ═ D5 ═ D6 ══ C1_IN … C4_IN ═════════ C5_IN … C8_IN ══════════ │
-      │P   ┌ Khu D: kho thành phẩm┐  ┆  ┌─ Khu C: 8 dây chuyền ĐÓNG GÓI (x = 45…128) ─────────────────┐ P│
-      │P   │ 5 kệ pallet           │  ┆  │ C1  C2  C3  C4        ┆        C5  C6  C7  C8              │ P│
-      │P   │                       │  ┆  │ (tháo thùng, máy quấn màng, case packer, work cell 2 đầu) │ P│
-      │P   └───────────────────────┘  ┆  └ C1_OUT … C4_OUT ──────┆─────── C5_OUT … C8_OUT ────────────┘ P│
-      │ ═══ Đường Nam y=5: 2 làn 1 chiều ═ D4 ═ D3 ═ D2 ═ D1 ═══════════════════════════════════════════ │
- y=0  └ x=0 ─ Đường Tây x=5 (2 làn) ─ Trục giữa x=35 (2 chiều) ─ Ngõ x=84 (2 chiều) ─ Đường Đông x=135 ┘ x=140
+ y=75 ┌──────── tường panel · cửa sổ · cửa cuộn phía Bắc (xe tải) ────────────────┐ văn
+      │P ═ Đường Bắc y=70: 2 làn 1 chiều ═ A4 ═ A5 ═ B1_IN  B2_IN  B3_IN  B4_IN ═ │ phòng
+      │P   ┌ Khu A: kho linh kiện ┐  ┆  ┌─ Khu B: 4 dây chuyền SẢN XUẤT ──────┐   │ 2
+      │A3  │ 5 kệ đầy bin/thùng    │  ┆  │ B1    B2    B3    B4  (x 43…76)     │   │ tầng
+      │A1  └───────────────────────┘  ┆  └ CH1 B1_OUT CH2 B2_OUT B3_OUT CH3 B4_OUT CH4
+      │ ═══ Trục chính y=36: 2 làn ═ D5 ═ D6 ═ C1_IN  C2_IN  C3_IN  C4_IN ════════ │
+      │P   ┌ Khu D: kho thành phẩm┐  ┆  ┌─ Khu C: 4 dây chuyền ĐÓNG GÓI ──────┐  P│
+      │P   │ 5 kệ pallet           │  ┆  │ C1    C2    C3    C4  (x 45…78)     │  P│
+      │P   └───────────────────────┘  ┆  └ C1_OUT  C2_OUT  C3_OUT  C4_OUT ─────┘  P│
+      │ ═══ Đường Nam y=5: 2 làn ═ D4 ═ D3 ═ D2 ═ D1 ══════════════════════════════ │
+ y=0  └ x=0 ─ Đường Tây x=5 (2 làn) ─ Trục giữa x=35 (2 chiều) ─ Đường Đông x=85 ─┘ x=90
 ```
 
 * **Làn 1 chiều theo luật đi bên phải** (Đường Nam, Trục chính, Đường Bắc, Đường Tây, Đường Đông): hai làn cách nhau 2 m nên
@@ -155,13 +158,12 @@ có trên `/factory/people` (`geometry_msgs/PoseArray`) và trong RViz. Tắt b�
 4. Dây chuyền C **đóng gói từng sản phẩm** (`pack_time` 21 s/SP) và xếp vào thùng thành phẩm (12 SP).
 5. `FG_DELIVERY` C*_OUT → D1–D6: nhập kho thành phẩm.
 
-**Số dây chuyền chạy theo số robot** (`active_lines: auto`, `robots_per_line: 2.0`): MES chạy ceil(số robot online / 2)
-cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D). 5 robot → 3 cặp, 7 → 4, 12 → 6, 15 → 8. Dây bị tắt chạy
+**Số dây chuyền chạy theo số robot** (`active_lines: auto`, `robots_per_line: 1.5`): MES chạy ceil(số robot online / 1.5)
+cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D). 4 robot → 3 cặp, 5–8 robot → cả 4 cặp. Dây bị tắt chạy
 hết hàng đang có rồi nghỉ (không nhận kit / thùng mới). Thêm robot thì bật ngay; bớt robot thì tắt sau 20 s.
 
-Năng lực (mô phỏng headless 2–4 giờ, xem mục 10): 5 robot ≈ 427 SP/giờ, 7 robot ≈ 590, 12 robot ≈ 860,
-15 robot ≈ 1015 SP/giờ (8 dây chuyền ≈ 77 % tải, còn dư cho 16–18 robot). Bố trí cũ 4 + 4 dây chuyền bão hoà ở
-8 robot (655 SP/giờ).
+Năng lực (mô phỏng headless, xem mục 10): 5 robot ≈ 437 SP/giờ, 6 ≈ 509, 7 ≈ 588, 8 ≈ 648 (4 dây chuyền chạy kín
+100 %, đúng công suất 4 × 163.6 SP/giờ): 8 robot là vừa đủ cho nhà máy này.
 
 Khi khởi động, các dây chuyền đã có sẵn bán thành phẩm (`initial_wip`) nên mọi dây chạy ngay, không phải chờ robot
 chở chuyến đầu.
@@ -258,7 +260,7 @@ sudo apt install ros-humble-desktop ros-humble-xacro ros-humble-navigation2 ros-
 # ros_gz cho Harmonic: ros-humble-ros-gzharmonic, hoặc build ros_gz nhánh humble với GZ_VERSION=harmonic
 # docking: ros-humble-opennav-docking ros-humble-opennav-docking-msgs, hoặc build opennav_docking nhánh humble
 mkdir -p ~/amr_ws && cd ~/amr_ws
-git clone -b humble https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
+git clone -b lite-humble https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -273,9 +275,11 @@ Trên Humble: `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi khô
 không có EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
 `collision_monitor_state` (trường `obstacle_stop` trên dashboard luôn false).
 
-**Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Distribution/run_fleet.sh [số robot]`
-(mặc định 7, có cửa sổ Gazebo + RViz, tự dọn tiến trình cũ), tắt bằng `~/AMR-Fleet-Distribution/stop_fleet.sh`.
-`sim_env.bash` tách DDS của mô phỏng khỏi robot thật (CycloneDDS chỉ trên loopback, `ROS_DOMAIN_ID=42`). GUI Gazebo
+**Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Lite/run_lite.sh [số robot]`
+(mặc định 6, có cửa sổ Gazebo + RViz, dashboard http://localhost:8081), tắt bằng `~/AMR-Fleet-Lite/stop_lite.sh`
+(chỉ tắt tiến trình của bản nhẹ: biến môi trường `AMR_LITE=1`). Workspace, DDS domain (43), partition Gazebo
+(`amr_lite`) và thư mục world tạm (`/tmp/amr_fleet_lite`) riêng, không đụng tới bản đầy đủ.
+`sim_env.bash` tách DDS của mô phỏng khỏi robot thật (CycloneDDS chỉ trên loopback, `ROS_DOMAIN_ID=43`). GUI Gazebo
 được mở sau khi spawn xong cả đội (mở cùng lúc thì GUI bỏ sót robot spawn trong lúc nó đang nạp world).
 
 **Work cell ở đầu dây chuyền** (system `amr_factory_lines`): mỗi trạm `*_IN` / `*_OUT` có bệ 3 ô, một tay máy trạm 6
@@ -306,7 +310,7 @@ ros2 launch amr_bringup bringup.launch.py navigation:=simple
 ros2 launch amr_bringup bringup.launch.py sim:=kinematic num_robots:=15
 ```
 
-Mở **http://localhost:8080** để xem dashboard.
+Mở **http://localhost:8081** để xem dashboard.
 
 ### Xem robot né đường ngay
 
@@ -330,7 +334,7 @@ chạy ngược chiều cùng lúc. Cách nhau 8 m thì cả hai lệch phải,
 | `priority_mode` | `task` | `task` · `dynamic` · `static` |
 | `production` | `true` | `false`: tắt MES mô phỏng, robot chỉ chạy task thủ công / demo |
 | `agents` | `single_process` | `single_process`: mọi agent trong 1 process (nhẹ CPU) · `per_robot`: mỗi robot 1 process như AMR thật |
-| `dashboard_port` | `8080` | Cổng web |
+| `dashboard_port` | `8081` | Cổng web |
 | `dashboard_host` | `0.0.0.0` | `127.0.0.1`: chỉ máy này mở được dashboard (dashboard tạo được task, dừng cả đội) |
 
 Chạy từng phần riêng (đúng những gì `bringup.launch.py` làm; các tham số đi theo cặp, trộn sai thì khung toạ độ
@@ -426,21 +430,18 @@ dõi tiến độ route khi Nav2 cắt góc, ghép pose AMCL + odometry, kịch 
 thấp vào yield bay, chờ, bám lại route cũ, cả hai về đích không va chạm), và mô phỏng 12–15 robot với tiêu chí 0 va
 chạm (kiểm tra va chạm hình chữ nhật xoay) và không robot nào kẹt quá 150 s.
 
-Kết quả mô phỏng headless (cấu hình mặc định, `active_lines: auto`, đo sau 20 phút khởi động, 2 giờ; 5 và 7 robot
-đo sau 90 phút, 4 giờ để các dây chuyền bị tắt xả hết hàng):
+Kết quả mô phỏng headless (cấu hình mặc định, `active_lines: auto`, 2.5–3.5 giờ, đo sau 30–60 phút khởi động):
 
-| Robot | Dây chuyền chạy | Thành phẩm nhập kho / giờ | Thời gian làm task | Sạc + đi sạc | Chờ dock | Robot đi sạc cùng lúc (tối đa) | Va chạm |
+| Robot | Dây chuyền chạy | Thành phẩm nhập kho / giờ | Tải dây chuyền SX | Sạc + đi sạc | Chờ dock | Robot đi sạc cùng lúc (tối đa) | Va chạm |
 |---|---|---|---|---|---|---|---|
-| 5 | 3 + 3 | 427 | 83 % | 17 % | 0 % | 3 | 0 |
-| 7 | 4 + 4 | 590 | 83 % | 17 % | 0 % | 2 | 0 |
-| 9 | 5 + 5 | 742 | 83 % | 17 % | 0 % | 3 | 0 |
-| 12 | 6 + 6 | 864 | 82 % | 18 % | 0 % | 4 | 0 |
-| 15 | 8 + 8 | 1015 | 81 % | 19 % | 0 % | 6 | 0 |
+| 5 | 4 + 4 | 437 | 67 % | 16 % | 0 % | 3 | 0 |
+| 6 | 4 + 4 | 509 | 77 % | 16 % | 0 % | 4 | 0 |
+| 7 | 4 + 4 | 588 | 93 % | 16 % | 0 % | 3 | 0 |
+| 8 | 4 + 4 | 648 | 100 % | 17 % | 0 % | 4 | 0 |
 
-So với bố trí cũ (4 + 4 dây chuyền, 120 × 72 m, 5 dock giữa xưởng): bão hoà ở 8 robot với 655 SP/giờ, từ 9 robot trở
-lên robot chỉ đứng chờ (15 robot: 46 % thời gian rảnh). Đường Bắc 1 làn 2 chiều gây va chạm ở yield bay khi chạy
-7–8 dây chuyền với 15–16 robot, nên được đổi thành 2 làn 1 chiều. Với 15 robot, 5 dock để pin xuống 15 % (ngưỡng
-nguy hiểm), 6 dock thì chờ dock ≈ 0 và pin thấp nhất ≈ 16–18 %; 7 dock không tốt hơn.
+Gazebo + Nav2 + GUI + RViz, 6 robot, laptop RTX 4060: RTF ≈ 1.0. Bản đầy đủ 8 + 8 dây chuyền trên cùng máy chỉ đạt
+RTF ≈ 0.01 với 5 robot vì camera / lidar của robot phải vẽ hàng nghìn chi tiết chuyển động; bản nhẹ có một nửa số
+dây chuyền và mỗi tay máy / thùng / sản phẩm chỉ 1 draw call (mesh một màu), model đang ẩn để ngoài tầm cảm biến.
 
 Đã chạy thử trên **Gazebo Harmonic (gz-sim 8)** với Nav2 + AMCL cho 3 robot, trong container không GPU (render
 phần mềm, RTF ≈ 0.3–0.5): robot spawn ở bãi đỗ, AMCL định vị trên bản đồ sinh từ world (sai số so với vị trí thật

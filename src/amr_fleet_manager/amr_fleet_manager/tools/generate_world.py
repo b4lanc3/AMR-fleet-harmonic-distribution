@@ -972,45 +972,45 @@ def _vis(name, size, mat, pose=(0.0, 0.0, 0.0)) -> str:
 # carton of finished goods
 CARTON_STYLE = {'kit': ('carton', 'bin_blue'), 'semi': ('carton', 'dark'),
                 'fg': ('carton_dark', 'green')}
-# product looks along the lines: (size, body material, cap material, film)
-ITEM_LOOK = {'part': ((0.10, 0.09, 0.06), 'steel_light', 'steel', False),
-             'product': ((0.10, 0.09, 0.08), 'machine_orange', 'machine_dark', False),
-             'wrapped': ((0.11, 0.10, 0.09), 'machine_orange', 'machine_dark', True)}
+# product looks along the lines: (size, material).  Lite: every moving part is
+# ONE draw call (a single box or a single-material mesh) - the cameras and
+# lidars of the fleet render them all.
+ITEM_LOOK = {'part': ((0.10, 0.09, 0.06), 'steel_light'),
+             'product': ((0.10, 0.09, 0.08), 'machine_orange'),
+             'wrapped': ((0.11, 0.10, 0.09), 'white')}
 TRAY_WALL = 0.015
 
 
 def _carton_geometry(style: str = 'semi') -> str:
     """Closed carton, origin in its centre."""
-    sx, sy, sz = CARTON
-    body, band = CARTON_STYLE[style]
-    return (_vis('box', CARTON, body)
-            + _vis('tape', (sx + 0.01, 0.06, 0.004), band, (0, 0, sz / 2 + 0.001))
-            + _vis('label', (0.004, 0.16, 0.10), 'white', (sx / 2 + 0.002, 0, 0.0)))
+    return _vis('box', CARTON, CARTON_STYLE[style][0])
 
 
-def _tray_geometry(style: str = 'semi') -> str:
-    """Open carton (flaps folded down), origin in the centre of its volume."""
+def _tray_geometry(style: str = 'semi', mesh=None) -> str:
+    """Open carton, origin in the centre of its volume: one single-material OBJ
+    (floor + 4 walls) with a mesh, else 5 boxes."""
     sx, sy, sz = CARTON
-    body, band = CARTON_STYLE[style]
+    body = CARTON_STYLE[style][0]
     t = TRAY_WALL
-    return (_vis('floor', (sx, sy, t), body, (0, 0, -sz / 2 + t / 2))
-            + _vis('w1', (sx, t, sz), body, (0, sy / 2 - t / 2, 0))
-            + _vis('w2', (sx, t, sz), body, (0, -sy / 2 + t / 2, 0))
-            + _vis('w3', (t, sy, sz), body, (sx / 2 - t / 2, 0, 0))
-            + _vis('w4', (t, sy, sz), body, (-sx / 2 + t / 2, 0, 0))
-            + _vis('band', (0.004, 0.16, 0.06), band, (sx / 2 + 0.002, 0, 0.0)))
+    parts = [((0, 0, -sz / 2 + t / 2), (sx, sy, t)),
+             ((0, sy / 2 - t / 2, 0), (sx, t, sz)), ((0, -sy / 2 + t / 2, 0), (sx, t, sz)),
+             ((sx / 2 - t / 2, 0, 0), (t, sy, sz)), ((-sx / 2 + t / 2, 0, 0), (t, sy, sz))]
+    if mesh:
+        import os
+        obj_file, uri = mesh
+        baker = MeshBaker()
+        for (x, y, z), size in parts:
+            baker.box(x, y, z, *size, body)
+        baker.write(os.path.join(os.path.dirname(os.path.abspath(obj_file)), f'tray_{style}.obj'))
+        return (f'<visual name="v"><geometry><mesh><uri>{escape(uri.rsplit("/", 1)[0])}'
+                f'/tray_{style}.obj</uri></mesh></geometry><cast_shadows>false</cast_shadows></visual>')
+    return ''.join(_vis(f'w{k}', size, body, pos) for k, (pos, size) in enumerate(parts))
 
 
 def _item_geometry(look: str) -> str:
     """One product, origin in its centre."""
-    (sx, sy, sz), body, cap, film = ITEM_LOOK[look]
-    if film:        # shrink-wrapped product: the product inside a film
-        core = (sx - 0.02, sy - 0.02, sz - 0.02)
-        return (_vis('core', core, body) + _vis('cap', (core[0], core[1] * 0.5, 0.006), cap,
-                                                (0, 0, core[2] / 2 + 0.003))
-                + _vis('film', (sx, sy, sz), 'wrap'))
-    return _vis('body', (sx, sy, sz * 0.8), body, (0, 0, -sz * 0.1)) + \
-        _vis('cap', (sx * 0.7, sy * 0.7, sz * 0.2), cap, (0, 0, sz * 0.4))
+    size, body = ITEM_LOOK[look]
+    return _vis('body', size, body)
 
 
 def add_robot_arm_pedestal(m: Model, base) -> None:
@@ -1069,7 +1069,8 @@ STACK_TOP = 0.335 + 5 * 0.03
 
 def _arm_geometry(mesh, prefix: str, color: str, tool: str) -> Dict[str, str]:
     """Visual of every moving arm link (one OBJ per link with a mesh)."""
-    links = arm_links(1.0, color, tool)
+    # one material per link: one draw call
+    links = {k: [p[:-1] + (color,) for p in parts] for k, parts in arm_links(1.0, color, tool).items()}
     geometry = {}
     for name in ('turret', 'upper', 'fore', 'tool'):
         if mesh:
@@ -1101,7 +1102,7 @@ def _posed_arm(name: str, base, tip, yaw: float, geometry: Dict[str, str]) -> st
     return ''.join(out)
 
 
-HIDDEN = -20.0
+HIDDEN = (-1000.0, -1000.0, -50.0)      # far beyond every sensor range: culled
 
 
 def line_cells(layout: dict, graph) -> List[dict]:
@@ -1146,7 +1147,8 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
         return ''
     station_geo = _arm_geometry(mesh, 'arm', 'robot_orange', 'vacuum')
     loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer')
-    hidden = (0.0, 0.0, HIDDEN, 0, 0, 0)
+    hidden = (*HIDDEN, 0, 0, 0)
+    trays = {st: _tray_geometry(st, mesh) for st in CARTON_STYLE}
     cfg = []
 
     def v3(p) -> str:
@@ -1169,9 +1171,9 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
             out.append(_posed_arm(f'fl_{sid}_ld', loader, lm, yaw, loader_geo))
             for k in range(len(slots)):
                 out.append(_link_model(f'fl_{sid}_box{k}', hidden, _carton_geometry(style)))
-                out.append(_link_model(f'fl_{sid}_tray{k}', hidden, _tray_geometry(style)))
+                out.append(_link_model(f'fl_{sid}_tray{k}', hidden, trays[style]))
             out.append(_link_model(f'fl_{sid}_hbox', hidden, _carton_geometry(style)))
-            out.append(_link_model(f'fl_{sid}_htray', hidden, _tray_geometry(style)))
+            out.append(_link_model(f'fl_{sid}_htray', hidden, trays[style]))
             ends.append(f'<end side="{side}" station="{sid}">'
                         f'<service>{service[0]:.3f} {service[1]:.3f}</service>'
                         f'<yaw>{yaw:.4f}</yaw><arm>{v3(arm)}</arm><loader>{v3(loader)}</loader>'

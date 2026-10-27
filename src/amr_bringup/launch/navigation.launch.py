@@ -144,7 +144,7 @@ def launch_setup(context, *args, **kwargs):
     graph = build_graph(layout)
     poses = spawn_poses(graph, n)
     docks = charger_docks(graph)
-    tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet')
+    tmp = os.path.join(tempfile.gettempdir(), 'amr_fleet_lite')
     os.makedirs(tmp, exist_ok=True)
     sim_time = lc('use_sim_time').lower() == 'true'
     full = lc('full_stack').lower() == 'true'
@@ -184,7 +184,7 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('num_robots', default_value='12'),
+        DeclareLaunchArgument('num_robots', default_value='6'),
         DeclareLaunchArgument('layout_file', default_value=''),
         DeclareLaunchArgument('map', default_value='',
                               description='map yaml (default: generated from the layout)'),

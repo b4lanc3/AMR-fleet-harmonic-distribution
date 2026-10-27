@@ -5,7 +5,7 @@ from amr_fleet_manager.sim.headless import HeadlessSim
 
 
 def test_headless_fleet_is_safe_and_productive(layout):
-    sim = HeadlessSim(layout, 12)
+    sim = HeadlessSim(layout, 6)
     m = sim.run(12 * 60)
     assert m.collisions == 0, m.collision_pairs
     assert m.tasks_completed >= 10
@@ -13,8 +13,8 @@ def test_headless_fleet_is_safe_and_productive(layout):
     assert m.max_stall < 150.0, (m.max_stall, m.max_stall_robot)
 
 
-def test_fifteen_robots_no_collisions(layout):
-    sim = HeadlessSim(layout, 15)
+def test_eight_robots_no_collisions(layout):
+    sim = HeadlessSim(layout, 8)
     m = sim.run(8 * 60)
     assert m.collisions == 0, m.collision_pairs
     assert m.tasks_completed >= 10
@@ -27,16 +27,16 @@ def _status(fleet, rid, x, y, yaw=0.0, t=0.0):
 
 
 def test_head_on_robots_pass_each_other_without_stopping(layout, graph):
-    """Two robots meet head-on on the two-way link lane: they detect each
+    """Two robots meet head-on on the two-way mid lane: they detect each
     other, both shift to their right, pass and keep their route - nobody stops
     or drives into a yield bay."""
     sim = HeadlessSim(layout, 2)
     fleet = sim.fleet
     g = sim.graph
-    # put both robots on the link lane facing each other
+    # put both robots on the mid lane facing each other
     a, b = sim.world.robots['amr_01'], sim.world.robots['amr_02']
-    na = g.nearest_node(84.0, 14.0)
-    nb = g.nearest_node(84.0, 27.0)
+    na = g.nearest_node(35.0, 14.0)
+    nb = g.nearest_node(35.0, 27.0)
     a.x, a.y, a.yaw = g.nodes[na].x, g.nodes[na].y, math.pi / 2
     b.x, b.y, b.yaw = g.nodes[nb].x, g.nodes[nb].y, -math.pi / 2
     fleet.production.lines.clear()
@@ -44,7 +44,7 @@ def test_head_on_robots_pass_each_other_without_stopping(layout, graph):
     sim.step()
     ra, rb = fleet.robots['amr_01'], fleet.robots['amr_02']
     # goals: the yield bays at both ends of the lane (like the head-on demo)
-    bays = sorted((i for i in g.yield_bays if g.nodes[i].id.startswith('Y.link.')),
+    bays = sorted((i for i in g.yield_bays if g.nodes[i].id.startswith('Y.mid.')),
                   key=lambda i: g.nodes[i].y)
     goal_a, goal_b = bays[-1], bays[0]
     fleet._release_parking(ra)

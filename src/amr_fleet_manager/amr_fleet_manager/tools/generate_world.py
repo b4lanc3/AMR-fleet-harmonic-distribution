@@ -66,8 +66,8 @@ _MAT = {
     'wood': (0.70, 0.52, 0.32, 1), 'charger': (0.95, 0.80, 0.10, 1), 'cabinet': (0.62, 0.64, 0.68, 1),
     'green': (0.10, 0.80, 0.25, 1), 'red': (0.88, 0.12, 0.10, 1), 'amber': (1.0, 0.70, 0.0, 1),
     'white': (0.95, 0.95, 0.95, 1), 'lane': (0.98, 0.85, 0.10, 1), 'lane_two': (0.98, 0.50, 0.05, 1),
-    'walkway': (0.15, 0.65, 0.30, 1), 'pad_station': (0.10, 0.70, 0.30, 1), 'pad_dock': (0.98, 0.85, 0.10, 1),
-    'pad_park': (0.95, 0.95, 0.95, 1), 'pad_yield': (1.0, 0.55, 0.0, 1),
+    'pad_station': (0.10, 0.70, 0.30, 1),
+    'pad_park': (0.95, 0.95, 0.95, 1),
     'office_glass': (0.45, 0.65, 0.85, 0.55), 'office_wall': (0.90, 0.90, 0.88, 1),
     'truck_cab': (0.80, 0.10, 0.10, 1), 'truck_box': (0.92, 0.92, 0.92, 1), 'tyre': (0.05, 0.05, 0.05, 1),
     'grass': (0.30, 0.50, 0.25, 1),
@@ -509,29 +509,13 @@ def build_markings(layout, graph, out: List[str]) -> None:
                 ox, oy = rot(0, s * 1.6, yaw)
                 mk.box((ax + bx) / 2 + ox, (ay + by) / 2 + oy, 0.006, L, 0.06, 0.002, 'white', yaw,
                        in_map=False)
-        else:
+        else:           # one-way lane: centre line only (no direction arrows)
             mk.box((ax + bx) / 2, (ay + by) / 2, 0.006, L, 0.08, 0.002, 'lane', yaw, in_map=False)
-            for i in range(1, int(L / 6)):
-                t = i * 6.0
-                px, py = ax + (bx - ax) * t / L, ay + (by - ay) * t / L
-                for s in (-1, 1):
-                    ox, oy = rot(-0.15, s * 0.12, yaw)
-                    mk.box(px + ox, py + oy, 0.006, 0.40, 0.07, 0.002, 'lane', yaw + s * 0.7, in_map=False)
-    # U-turn crossovers between the two lanes of an aisle: dashed lane-colour band
-    for a, b in getattr(graph, 'crossovers', []):
-        na, nb = graph.nodes[a], graph.nodes[b]
-        L = math.hypot(nb.x - na.x, nb.y - na.y)
-        yaw = math.atan2(nb.y - na.y, nb.x - na.x)
-        for i in range(4):
-            t = (i + 0.5) / 4
-            mk.box(na.x + (nb.x - na.x) * t, na.y + (nb.y - na.y) * t, 0.006, L / 8, 0.9, 0.002,
-                   'lane', yaw, in_map=False)
     pads = [(graph.nodes[s.service], 'pad_station', s.heading) for s in graph.stations.values()]
     pads += [(graph.nodes[s.queue], 'pad_station', s.heading) for s in graph.stations.values()
              if s.queue is not None]
-    pads += [(graph.nodes[i], 'pad_dock', graph.nodes[i].heading or 0.0) for i in graph.chargers.values()]
     pads += [(graph.nodes[i], 'pad_park', graph.nodes[i].heading or 0.0) for i in graph.parking.values()]
-    pads += [(graph.nodes[i], 'pad_yield', graph.nodes[i].heading or 0.0) for i in graph.yield_bays]
+    # no yellow frames along the lanes (charger docks, yield bays): the chargers stand there
     for n, mat, yaw in pads:
         loc = Local(mk, n.x, n.y, yaw)
         for dx, dy, sx, sy in ((0.55, 0, 0.06, 0.9), (-0.55, 0, 0.06, 0.9), (0, 0.45, 1.1, 0.06),
@@ -1472,8 +1456,9 @@ def walkway_crossings(graph, a, b, half: float = 1.3) -> List[Tuple[float, float
 
 
 def build_people(layout, graph, out: List[str]) -> str:
-    """Painted walkways / zebra crossings along the workers' routes and the
-    Pedestrians system block (returned) that animates the workers."""
+    """Zebra crossings where the workers' routes cross the AMR lanes (no
+    walkway lines elsewhere) and the Pedestrians system block (returned)
+    that animates the workers."""
     routes = people_routes(layout)
     if not routes:
         return ''
@@ -1493,19 +1478,6 @@ def build_people(layout, graph, out: List[str]) -> str:
                     m.box(a[0] + ux * k, a[1] + uy * k, 0.007, 0.3, 1.4, 0.002, 'white', yaw,
                           in_map=False)
                     k += 0.6
-            # green border lines on both sides elsewhere
-            free, last = [], 0.0
-            for lo, hi in spans:
-                if lo - last > 0.3:
-                    free.append((last, lo))
-                last = hi
-            if L - last > 0.3:
-                free.append((last, L))
-            for lo, hi in free:
-                cx, cy = a[0] + ux * (lo + hi) / 2, a[1] + uy * (lo + hi) / 2
-                for side in (-0.7, 0.7):
-                    m.box(cx - uy * side, cy + ux * side, 0.006, hi - lo, 0.08, 0.002,
-                          'walkway', yaw, in_map=False)
     out.append(m.sdf())
     cfg = layout.get('people') or {}
     persons = []

@@ -112,12 +112,14 @@ trong unit test.
 ```
 
 * **Làn 1 chiều theo luật đi bên phải** (Đường Nam, Trục chính, Đường Bắc, Đường Tây, Đường Đông): hai làn cách nhau 2 m nên
-  không có đối đầu. Có mũi tên chỉ chiều trên sàn Gazebo và trong RViz.
-* **Điểm quay đầu chéo** (`crossover_spacing: 20` trong `traffic:`): cứ khoảng 20 m trên mỗi đường 2 làn có một đoạn
-  nối chéo giữa hai làn (vạch vàng đứt trên sàn). Robot có đích ở phía sau quay sang làn ngược chiều ngay tại đó
-  thay vì chạy vòng cả dãy; đoạn chéo được bộ quản lý giao thông giữ chỗ như mọi cạnh khác nên robot chỉ cắt sang
-  khi làn bên kia trống. Mô phỏng headless 60 phút: thêm 5–10 % sản phẩm xuất hàng với 5–9 robot, +17 % với
-  15 robot (bản chính 960 → 1120 SP/giờ), 0 va chạm; đặt dày hơn (10 m) tăng thêm chút ít nhưng hay phải gỡ kẹt hơn.
+  không có đối đầu. Sàn chỉ sơn vạch giữa làn (không vẽ mũi tên).
+* **Cắt làn linh hoạt** (`crossover_spacing: 2`, `crossover_cost`, `crossover_gap` trong `traffic:`): trên mọi đường
+  2 làn, robot có thể cắt sang làn ngược chiều **ở bất kỳ điểm nào** (mỗi nút làn, cách 2 m) khi đích nằm phía sau,
+  thay vì chạy vòng cả dãy. Bộ lập đường cộng thêm 8 s cho mỗi lần cắt nên robot chỉ cắt khi lợi rõ; bộ quản lý giao
+  thông giữ chỗ đoạn cắt như mọi cạnh khác và bắt robot **chờ khoảng trống**: không robot nào trên làn đích đang đi
+  tới điểm cắt trong vòng 8 m, nên xe đang chạy thẳng không phải dừng vì xe quay đầu. Mô phỏng headless 60 phút (SP
+  xuất hàng / giờ; không cắt → cố định 20 m → linh hoạt): bản nhẹ 5 robot 448 → 480 → 544, 8 robot 640 → 688 → 704;
+  bản chính 9 robot 720 → 784 → 800, 15 robot 960 → 1120 → 1200; 0 va chạm, số lần dừng/km tương đương cách 20 m.
 * **Làn 2 chiều** (Trục giữa x=35, Ngõ x=84) có **yield bay** (ô tránh) dọc làn: đây là nơi robot gặp
   nhau đối đầu và robot ưu tiên thấp phải né.
 * **Trạm** là lay-by cạnh làn: `làn → Q (ô chờ) → S (ô phục vụ) → làn`. Robot chờ trạm đứng ở Q, không chặn làn.
@@ -150,8 +152,8 @@ khi lệch quá 0,3 s thì dây chuyền chạy nhanh/chậm hơn tối đa 25 %
 **Công nhân đi lại trong nhà máy** (Gazebo, system `amr_pedestrians`, mục `people:` trong layout): 8 người mặc áo
 phản quang, đội mũ bảo hộ, đi bộ ~1 m/s, tay chân đung đưa theo bước đi, dừng làm việc ở các điểm trên tuyến:
 2 người lấy hàng giữa các dãy kệ khu A và D, 8 người vận hành dọc hành lang giữa các dây chuyền B và C, 1 người vận
-chuyển vật tư băng qua trục chính, 1 giám sát đi vòng cắt qua ngõ x = 84. Lối đi bộ được sơn vạch xanh, chỗ cắt làn
-AMR có vạch qua đường (zebra). Fleet manager không lập kế hoạch quanh họ: lidar 270° thấy chân, camera 3D thấy cả
+chuyển vật tư băng qua trục chính, 1 giám sát đi vòng cắt qua ngõ x = 84. Lối đi bộ không sơn vạch, chỉ chỗ cắt
+làn AMR có vạch qua đường (zebra). Fleet manager không lập kế hoạch quanh họ: lidar 270° thấy chân, camera 3D thấy cả
 người, nên `collision_monitor` của Nav2 giảm tốc / dừng AMR khi có người phía trước. Người đứng chờ khi một AMR đang
 chạy tới gần và quay lại nếu AMR đứng chắn lối đi quá lâu (không bao giờ kẹt cứng người ↔ robot). Vị trí từng người
 có trên `/factory/people` (`geometry_msgs/PoseArray`) và trong RViz. Tắt bằng `people:=false`.

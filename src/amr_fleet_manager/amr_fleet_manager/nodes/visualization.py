@@ -14,7 +14,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from ..core.graph import CHARGER, INTERSECTION, PARKING, QUEUE, STATION, YIELD, TrafficGraph
 from ..core.colors import robot_rgb
-from ..core.layout import all_objects
+from ..core.layout import all_objects, crossover_keys
 
 OBJECT_COLORS = {
     'rack': (0.30, 0.45, 0.70), 'conveyor': (0.25, 0.25, 0.28), 'machine': (0.85, 0.50, 0.15),
@@ -103,9 +103,7 @@ def static_markers(layout: dict, graph: TrafficGraph, frame: str, stamp) -> Mark
     bay = _marker('lanes', 2, Marker.LINE_LIST, frame, stamp)
     bay.scale.x = 0.04
     bay.color = _c((0.3, 0.3, 0.3), 0.8)
-    heads = _marker('lane_arrows', 0, Marker.TRIANGLE_LIST, frame, stamp)
-    heads.color = _c((0.15, 0.45, 0.95), 0.9)
-    done = set()
+    done = crossover_keys(graph)          # crossovers: anywhere on an aisle, not drawn
     for es in graph.out_edges:
         for e in es:
             key = (min(e.u, e.v), max(e.u, e.v))
@@ -114,14 +112,7 @@ def static_markers(layout: dict, graph: TrafficGraph, frame: str, stamp) -> Mark
                 done.add(key)
                 target = bay if e.lane is None else (two if e.two_way else one)
                 target.points += [_p(a.x, a.y, 0.02), _p(b.x, b.y, 0.02)]
-            if e.lane is not None and not e.two_way and e.length > 1.2:
-                dx, dy = (b.x - a.x) / e.length, (b.y - a.y) / e.length
-                mx, my = (a.x + b.x) / 2, (a.y + b.y) / 2
-                s = 0.28
-                heads.points += [_p(mx + dx * s, my + dy * s, 0.03),
-                                 _p(mx - dx * s - dy * s * 0.8, my - dy * s + dx * s * 0.8, 0.03),
-                                 _p(mx - dx * s + dy * s * 0.8, my - dy * s - dx * s * 0.8, 0.03)]
-    arr.markers += [one, two, bay, heads]
+    arr.markers += [one, two, bay]
     # nodes
     colors = {INTERSECTION: (0.9, 0.2, 0.2), STATION: (0.1, 0.8, 0.3), QUEUE: (0.5, 0.9, 0.5),
               CHARGER: (1.0, 0.85, 0.0), PARKING: (0.55, 0.55, 0.55), YIELD: (1.0, 0.6, 0.1)}

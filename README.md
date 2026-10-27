@@ -116,6 +116,11 @@ trong unit test.
 
 * **Làn 1 chiều theo luật đi bên phải** (Đường Nam, Trục chính, Đường Bắc, Đường Tây, Đường Đông): hai làn cách nhau 2 m nên
   không có đối đầu. Có mũi tên chỉ chiều trên sàn Gazebo và trong RViz.
+* **Điểm quay đầu chéo** (`crossover_spacing: 20` trong `traffic:`): cứ khoảng 20 m trên mỗi đường 2 làn có một đoạn
+  nối chéo giữa hai làn (vạch vàng đứt trên sàn). Robot có đích ở phía sau quay sang làn ngược chiều ngay tại đó
+  thay vì chạy vòng cả dãy; đoạn chéo được bộ quản lý giao thông giữ chỗ như mọi cạnh khác nên robot chỉ cắt sang
+  khi làn bên kia trống. Mô phỏng headless 60 phút: thêm 5–10 % sản phẩm xuất hàng với 5–9 robot, +17 % với
+  15 robot (bản chính 960 → 1120 SP/giờ), 0 va chạm; đặt dày hơn (10 m) tăng thêm chút ít nhưng hay phải gỡ kẹt hơn.
 * **Làn 2 chiều** (Trục giữa x=35, Ngõ x=84) có **yield bay** (ô tránh) dọc làn: đây là nơi robot gặp
   nhau đối đầu và robot ưu tiên thấp phải né.
 * **Trạm** là lay-by cạnh làn: `làn → Q (ô chờ) → S (ô phục vụ) → làn`. Robot chờ trạm đứng ở Q, không chặn làn.
@@ -167,8 +172,14 @@ có trên `/factory/people` (`geometry_msgs/PoseArray`) và trong RViz. Tắt b�
    thùng: có sẵn hàng lúc khởi động (`initial_stock`) để dây đóng gói chạy ngay, kho đầy (`capacity`) thì dây SX
    phải chờ, kho trống thì dây đóng gói chờ — kho là bộ đệm giữa sản xuất và đóng gói.
 5. Dây chuyền C **đóng gói từng sản phẩm** (`pack_time` 21 s/SP) và xếp vào thùng xuất hàng (16 SP).
-6. `SHIPMENT` C*_OUT → G1–G3: **xuất hàng** ra cổng ở tường Nam, băng lăn đưa thùng lên xe tải; xe đủ
-   `truck_capacity` (20 thùng) thì xuất bến và xe mới vào.
+6. `SHIPMENT` C*_OUT → G1–G3: **xuất hàng** ra cổng ở tường Nam; xe đủ `truck_capacity` (24 thùng) thì xuất
+   bến và xe mới (rỗng) vào.
+
+**Cổng xuất hàng** (station `ship_dock`, mục `GATE_*` trong `core/layout.py`): một tay máy trạm gắp thùng từ AMR đặt
+lên đầu băng tải dock; băng tải chạy qua cửa cuốn đang mở, qua sàn dock tới đuôi xe, rồi **cần băng tải ống lồng**
+(3 đoạn lồng nhau) vươn vào trong thùng xe tới mặt chồng hàng; thùng được đặt lên chồng hàng xếp từ vách đầu xe ra
+cửa sau (mỗi hàng 4 thùng ngang × 3 tầng). Thùng xe tải rỗng, mở cửa sau, nên nhìn thấy từng thùng được xếp vào; số
+thùng trong xe khớp số đếm của MES (`"G1=n"` trên `/factory/line_state`). Xe đầy thì sau 4 s được thay bằng xe rỗng.
 
 Cổng xuất đặt ở tường Nam trước kho D: robot từ C_OUT quay đầu ở Đường Tây (~69 m) nhưng sau đó chỉ cách kho linh
 kiện ~85 m; cổng ở phía Đông Trục giữa gần dây đóng gói hơn (~35 m) nhưng chuyến rỗng về kho linh kiện ~165 m.

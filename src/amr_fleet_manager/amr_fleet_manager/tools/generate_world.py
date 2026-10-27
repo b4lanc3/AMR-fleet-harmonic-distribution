@@ -37,8 +37,9 @@ from xml.sax.saxutils import escape
 import numpy as np
 
 from ..core.docking import CONTACT_DEPTH
-from ..core.layout import (BELT_MARGIN, BELT_TOP, CELL_ARM, CELL_LOADER, CELL_SLOTS,
-                           CELL_STACK, LINE_CELLS, PEDESTAL_TOP, build_graph, cell_point,
+from ..core.layout import (ARM_CELLS, BELT_DOCK, BELT_MARGIN, BELT_TOP, CELL_ARM, CELL_LOADER, CELL_SLOTS,
+                           CELL_STACK, GATE_ARM, GATE_BELT, LINE_CELLS, PEDESTAL_TOP,
+                           build_graph, cell_point,
                            line_lead_time, line_objects, load_layout, people_routes,
                            people_segments, station_objects)
 
@@ -391,14 +392,21 @@ def build_walls(layout, slices: MapSlices, out: List[str]) -> None:
             for edge in (a, b):
                 place(edge - 0.15, edge + 0.15, 0.0, 5.2, 'door_frame', inset=-0.05)
             place(a, b, 0.0, 0.25, 'black', inset=-0.35)     # dock bumper
-    # steel columns along the walls (inside)
+    # steel columns along the walls (inside), none in a door opening (the dock
+    # conveyor of a shipping gate runs through it)
+    def in_door(wall, at):
+        return any(d['wall'] == wall and abs(at - d['at']) < d['width'] / 2 + 0.3 for d in doors)
+
     for x in np.arange(0.0, W + 0.1, 12.0):
-        for y in (0.15, H - 0.15):
+        for y, wall in ((0.15, 'south'), (H - 0.15, 'north')):
+            if in_door(wall, float(x)):
+                continue
             m.box(float(x) if 0 < x < W else min(max(float(x), 0.15), W - 0.15), y, wh / 2,
                   0.3, 0.3, wh, 'steel')
     for y in np.arange(12.0, H, 12.0):
-        for x in (0.15, W - 0.15):
-            m.box(x, float(y), wh / 2, 0.3, 0.3, wh, 'steel')
+        for x, wall in ((0.15, 'west'), (W - 0.15, 'east')):
+            if not in_door(wall, float(y)):
+                m.box(x, float(y), wh / 2, 0.3, 0.3, wh, 'steel')
     out.append(m.sdf())
 
 
@@ -509,6 +517,15 @@ def build_markings(layout, graph, out: List[str]) -> None:
                 for s in (-1, 1):
                     ox, oy = rot(-0.15, s * 0.12, yaw)
                     mk.box(px + ox, py + oy, 0.006, 0.40, 0.07, 0.002, 'lane', yaw + s * 0.7, in_map=False)
+    # U-turn crossovers between the two lanes of an aisle: dashed lane-colour band
+    for a, b in getattr(graph, 'crossovers', []):
+        na, nb = graph.nodes[a], graph.nodes[b]
+        L = math.hypot(nb.x - na.x, nb.y - na.y)
+        yaw = math.atan2(nb.y - na.y, nb.x - na.x)
+        for i in range(4):
+            t = (i + 0.5) / 4
+            mk.box(na.x + (nb.x - na.x) * t, na.y + (nb.y - na.y) * t, 0.006, L / 8, 0.9, 0.002,
+                   'lane', yaw, in_map=False)
     pads = [(graph.nodes[s.service], 'pad_station', s.heading) for s in graph.stations.values()]
     pads += [(graph.nodes[s.queue], 'pad_station', s.heading) for s in graph.stations.values()
              if s.queue is not None]
@@ -953,7 +970,7 @@ def build_station_objects(layout, graph, slices, out: List[str]) -> None:
         h = float(o.get('height', 0.6))
         yaw = o['yaw']
         loc = Local(m, cx, cy, yaw)
-        if o['kind'] not in LINE_CELLS:
+        if o['kind'] not in ARM_CELLS:
             m.collision_box(cx, cy, h / 2, sx, sy, h)
         kind = o['kind']
         if kind == 'kit_rack':
@@ -966,8 +983,10 @@ def build_station_objects(layout, graph, slices, out: List[str]) -> None:
                     loc.box(dx, dy, h / 2, 0.04, 0.04, h, 'rack_up')
         elif kind in LINE_CELLS:
             add_work_cell(m, o)
-        elif kind in ('wh_inbound', 'wh_outbound', 'ship_dock'):
+        elif kind in ('wh_inbound', 'wh_outbound'):
             add_transfer_table(m, o, loc, along, across, h)
+        elif kind == 'ship_dock':
+            add_ship_dock(m, o, layout)
         else:   # storage table
             loc.box(0, 0, h - 0.03, along, across, 0.06, 'galv')
             for dx in (-along / 2 + 0.05, along / 2 - 0.05):
@@ -981,8 +1000,7 @@ def add_transfer_table(m: Model, o: dict, loc: Local, along: float, across: floa
     """Roller table the AMR unloads onto / loads from (local y = left of the
     lane, the table stands on the right).  wh_inbound: put-away table in
     front of the warehouse racks, wh_outbound: picking table with the next
-    cartons of finished products waiting, ship_dock: dock table, its roller
-    conveyor runs on through the open dock door into the truck."""
+    cartons of finished products waiting."""
     kind = o['kind']
     loc.box(0, 0, h - 0.06, along, across, 0.04, 'steel')
     for k in range(int(along / 0.12)):
@@ -993,7 +1011,7 @@ def add_transfer_table(m: Model, o: dict, loc: Local, along: float, across: floa
             loc.box(dx, dy, (h - 0.08) / 2, 0.05, 0.05, h - 0.08, 'galv')
     # side guide on the far side, sign post
     loc.box(0, -across / 2 + 0.02, h + 0.06, along, 0.03, 0.08, 'yellow', in_map=False)
-    sign = {'wh_inbound': 'green', 'wh_outbound': 'beam_blue', 'ship_dock': 'amber'}[kind]
+    sign = {'wh_inbound': 'green', 'wh_outbound': 'beam_blue'}[kind]
     loc.box(along / 2 + 0.12, -across / 2, 1.1, 0.05, 0.05, 2.2, 'steel')
     loc.box(along / 2 + 0.12, -across / 2, 2.15, 0.04, 0.55, 0.28, sign, in_map=False)
     if kind == 'wh_outbound':
@@ -1003,21 +1021,77 @@ def add_transfer_table(m: Model, o: dict, loc: Local, along: float, across: floa
             loc.box(dx, -0.05, h + 0.68, 0.5, 0.36, 0.22, 'carton', in_map=False)
         for dx in (-along / 2 + 0.05, along / 2 - 0.05):
             loc.box(dx, -across / 2 + 0.05, h + 0.3, 0.05, 0.05, 0.6, 'galv', in_map=False)
-    elif kind == 'ship_dock':
-        # conveyor from the table through the door to the trailer, dock plate
-        x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
-        out_len = y0 + 2.6                      # the hall wall is at y = 0, the trailer at -2.5
-        m.box(cx, y0 - out_len / 2, h - 0.06, 0.8, out_len, 0.04, 'steel')
-        for k in range(int(out_len / 0.12)):
-            m.box(cx, y0 - 0.06 - k * 0.12, h - 0.025, 0.72, 0.05, 0.05, 'roller', in_map=False)
-        for yy in np.arange(y0 - 0.3, -2.4, -0.9):
-            for dx in (-0.35, 0.35):
-                m.box(cx + dx, float(yy), (h - 0.08) / 2, 0.05, 0.05, h - 0.08, 'galv',
-                      in_map=yy > 0)
-        m.box(cx, -1.4, 0.02, 3.0, 2.0, 0.04, 'steel_light', in_map=False)    # dock apron
-        # safety bollards both sides of the conveyor inside the door
-        for dx in (-1.25, 1.25):
-            m.cyl(cx + dx, 0.45, 0.55, 0.08, 1.1, 'yellow', collide=True)
+
+
+def gate_truck(layout: dict, o: dict):
+    """The truck behind the dock door of gate object o: (x, y, yaw) or None."""
+    best = None
+    vx, vy = o['right']
+    sx, sy = o['service']
+    for t in (layout.get('decor', {}) or {}).get('trucks', []) or []:
+        dx, dy = float(t['x']) - sx, float(t['y']) - sy
+        along = dx * vx + dy * vy                      # distance through the door
+        side = abs(-dx * vy + dy * vx)
+        if along > 0 and side < 1.0 and (best is None or along < best[0]):
+            best = (along, (float(t['x']), float(t['y']), float(t.get('yaw', 0.0))))
+    return best[1] if best else None
+
+
+def gate_geometry(layout: dict, o: dict) -> dict:
+    """Dock conveyor of a shipping gate: start (where the arm puts the carton),
+    end of the fixed part (trailer rear), front of the trailer load floor."""
+    vx, vy = o['right']
+    ux, uy = o['dir']
+    b0 = cell_point(o, *GATE_BELT)
+    truck = gate_truck(layout, o)
+    if truck is None:                                  # no truck: conveyor ends 3 m out
+        rear = (b0[0] + vx * 4.0, b0[1] + vy * 4.0)
+        front = (b0[0] + vx * 12.0, b0[1] + vy * 12.0)
+    else:
+        tx, ty, tyaw = truck
+        c, s_ = math.cos(tyaw), math.sin(tyaw)
+        rear = (tx + c * TRAILER_REAR, ty + s_ * TRAILER_REAR)
+        front = (tx + c * TRAILER_FRONT, ty + s_ * TRAILER_FRONT)
+    end = (rear[0] + vx * 0.1, rear[1] + vy * 0.1)
+    return {'b0': b0, 'b1': end, 'front': front, 'across': (ux, uy), 'truck': truck}
+
+
+def add_ship_dock(m: Model, o: dict, layout: dict) -> None:
+    """Static part of a shipping gate: pedestal of the station arm, dock
+    conveyor from the AMR through the open door over the dock to the trailer
+    (the telescopic boom inside the trailer moves: build_gate_cells), dock
+    apron, safety bollards and the gate sign."""
+    g = gate_geometry(layout, o)
+    (x0, y0), (x1, y1) = g['b0'], g['b1']
+    x0, y0 = x0 - o['right'][0] * 0.25, y0 - o['right'][1] * 0.25
+    length = math.hypot(x1 - x0, y1 - y0)
+    yaw = math.atan2(y1 - y0, x1 - x0)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    loc = Local(m, cx, cy, yaw)
+    top = BELT_DOCK
+    loc.box(0, 0, top - 0.04, length, 0.64, 0.08, 'steel', collide=True)
+    loc.box(0, 0, top - 0.005, length - 0.04, 0.56, 0.01, 'belt', in_map=False)
+    for sy in (-0.34, 0.34):
+        loc.box(0, sy, top + 0.03, length, 0.04, 0.10, 'yellow', in_map=False)    # side guides
+    for k in range(int(length / 1.2) + 1):
+        d = -length / 2 + 0.1 + k * 1.2
+        for sy in (-0.27, 0.27):
+            loc.box(d, sy, (top - 0.08) / 2, 0.06, 0.06, top - 0.08, 'galv')
+    loc.box(-length / 2 + 0.1, 0, top + 0.02, 0.12, 0.62, 0.06, 'dark', in_map=False)  # drive
+    # dock apron between the wall and the trailer
+    dx, dy = o['right']
+    ax, ay = x0 + dx * (length - 2.4), y0 + dy * (length - 2.4)
+    m.box(ax, ay, 0.02, 3.0 * abs(dy) + 2.0 * abs(dx), 3.0 * abs(dx) + 2.0 * abs(dy), 0.04,
+          'steel_light', in_map=False)
+    # station arm pedestal, bollards beside the conveyor inside the door
+    bx, by = cell_point(o, *GATE_ARM)
+    add_robot_arm_pedestal(m, (bx, by, ARM_PEDESTAL))
+    for du in (-0.75, 0.75):
+        px, py = cell_point(o, du, 1.85)
+        m.cyl(px, py, 0.55, 0.08, 1.1, 'yellow', collide=True)
+    px, py = cell_point(o, 0.55, 0.75)
+    m.box(px, py, 1.1, 0.05, 0.05, 2.2, 'steel')
+    Local(m, px, py, o['yaw']).box(0, 0, 2.15, 0.55, 0.04, 0.28, 'amber', in_map=False)
 
 
 def _link_model(name: str, pose, geometry: str) -> str:
@@ -1172,6 +1246,10 @@ def _posed_arm(name: str, base, tip, yaw: float, geometry: Dict[str, str], k: fl
 HIDDEN = (-1000.0, -1000.0, -50.0)      # far beyond every sensor range: culled
 
 
+def _hidden_pose():
+    return (*HIDDEN, 0, 0, 0)
+
+
 def line_cells(layout: dict, graph) -> List[dict]:
     """Everything the FactoryLines system needs per line: belt hand-off
     points, timing, product looks and both work cells."""
@@ -1210,15 +1288,61 @@ def line_cells(layout: dict, graph) -> List[dict]:
     return out
 
 
+GATE_TRANSIT = 4                      # cartons on the dock conveyor at a time
+BOOM_SECTIONS = 3                     # telescopic boom of the dock conveyor
+BOOM_LEN = 3.0
+
+
+def _boom_geometry(k: int) -> str:
+    w = CARTON[0] - 0.04 - 0.03 * k
+    return _vis('boom', (BOOM_LEN, w, 0.10), 'steel' if k % 2 else 'galv')
+
+
+def build_gate_cells(layout, graph, out: List[str], station_geo) -> List[str]:
+    """Moving parts of the shipping gates (station arm, carton in its tool,
+    cartons on the dock conveyor, telescopic boom, cartons stacked in the
+    truck) and their <gate> elements for the FactoryLines plugin."""
+    process = layout.get('process', {}) or {}
+    cap = int(process.get('truck_capacity', 20))
+    hidden = _hidden_pose()
+    cfg = []
+    for o in station_objects(layout, graph):
+        if o['kind'] != 'ship_dock':
+            continue
+        sid, yaw = o['station'], o['yaw']
+        g = gate_geometry(layout, o)
+        arm = (*cell_point(o, *GATE_ARM), ARM_PEDESTAL)
+        mid = cell_point(o, GATE_BELT[0] / 2, GATE_BELT[1] / 2)
+        out.append(_posed_arm(f'fl_{sid}_arm', arm, (*mid, 1.25), yaw, station_geo))
+        out.append(_link_model(f'fl_{sid}_hbox', hidden, _carton_geometry('fg')))
+        for k in range(GATE_TRANSIT):
+            out.append(_link_model(f'fl_{sid}_m{k}', hidden, _carton_geometry('fg')))
+        for k in range(cap):
+            out.append(_link_model(f'fl_{sid}_s{k}', hidden, _carton_geometry('fg')))
+        for k in range(BOOM_SECTIONS):
+            out.append(_link_model(f'fl_{sid}_boom{k}', hidden, _boom_geometry(k)))
+        (x0, y0), (x1, y1), (fx, fy) = g['b0'], g['b1'], g['front']
+        z = BELT_DOCK
+        cfg.append(f'<gate station="{sid}" cap="{cap}">'
+                   f'<service>{o["service"][0]:.3f} {o["service"][1]:.3f}</service>'
+                   f'<yaw>{yaw:.4f}</yaw><arm>{arm[0]:.3f} {arm[1]:.3f} {arm[2]:.3f}</arm>'
+                   f'<belt>{x0:.3f} {y0:.3f} {z:.3f} {x1:.3f} {y1:.3f} {z:.3f}</belt>'
+                   f'<front>{fx:.3f} {fy:.3f} {TRAILER_FLOOR:.3f}</front>'
+                   f'<across>{g["across"][0]:.4f} {g["across"][1]:.4f}</across>'
+                   f'<boom>{BOOM_LEN} {BOOM_SECTIONS}</boom></gate>')
+    return cfg
+
+
 def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> str:
     """Moving parts of the line work cells (arms, cartons, open cartons,
-    products) and the FactoryLines plugin element that drives them."""
+    products), of the shipping gates and the FactoryLines plugin element that
+    drives them."""
     lines = line_cells(layout, graph)
     if not lines:
         return ''
     station_geo = _arm_geometry(mesh, 'arm', 'robot_orange', 'vacuum')
     loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer', LOADER_SCALE)
-    hidden = (*HIDDEN, 0, 0, 0)
+    hidden = _hidden_pose()
     trays = {st: _tray_geometry(st, mesh) for st in CARTON_STYLE}
     cfg = []
 
@@ -1268,7 +1392,8 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
             f'<tool>{d["tool"]}</tool><loader_scale>{LOADER_SCALE}</loader_scale>'
             f'<loader_home>{LOADER_HOME[0]} {LOADER_HOME[1]}</loader_home>'
             f'<safe_rho>{SAFE_RHO[0]} {SAFE_RHO[1]}</safe_rho><swing_min>{SWING_MIN}</swing_min><carton>{CARTON[0]} {CARTON[1]} {CARTON[2]}</carton>'
-            f'<deck_top>{DECK_TOP}</deck_top>{"".join(cfg)}</plugin>\n')
+            f'<deck_top>{DECK_TOP}</deck_top>{"".join(cfg)}'
+            f'{"".join(build_gate_cells(layout, graph, out, station_geo))}</plugin>\n')
 
 
 def build_objects(layout, slices, out: List[str]) -> None:
@@ -1423,11 +1548,35 @@ def build_office(layout, out: List[str]) -> None:
     out.append(m.sdf())
 
 
+# trailer of the trucks in the truck frame (x forward to the cab, z up): the
+# load floor, the inner face of the front wall, the rear end (doors open)
+TRAILER_FLOOR = 0.80
+TRAILER_FRONT = 2.94
+TRAILER_REAR = -6.0
+TRAILER_WIDTH = 2.5
+
+
 def build_trucks(layout, out: List[str]) -> None:
+    """Trucks backed up to the docks: an empty box trailer (floor, side
+    walls, roof, front wall), rear doors swung open against the sides, so
+    the cartons the gate conveyor loads are seen inside."""
     for i, t in enumerate((layout.get('decor', {}) or {}).get('trucks', []) or []):
         m = Model(f'truck_{i}')
         loc = Local(m, float(t['x']), float(t['y']), float(t.get('yaw', 0.0)))
-        loc.box(-1.5, 0, 2.2, 9.0, 2.5, 2.9, 'truck_box', collide=True)        # trailer (back to the door)
+        L, W, f = TRAILER_FRONT + 0.06 - TRAILER_REAR, TRAILER_WIDTH, TRAILER_FLOOR
+        cx = (TRAILER_FRONT + 0.06 + TRAILER_REAR) / 2
+        H = 2.85
+        loc.box(cx, 0, f - 0.15, L, W - 0.3, 0.3, 'dark', collide=True)           # chassis
+        loc.box(cx, 0, f - 0.025, L, W, 0.05, 'steel_light')                      # load floor
+        for sy in (-1, 1):
+            loc.box(cx, sy * (W / 2 - 0.025), f + H / 2, L, 0.05, H, 'truck_box')  # side walls
+            # rear door swung open flat against the side wall
+            loc.box(TRAILER_REAR + 0.62, sy * (W / 2 + 0.05), f + H / 2, 1.2, 0.04, H - 0.1,
+                    'truck_box')
+            loc.box(TRAILER_REAR, sy * (W / 2 - 0.05), f + H / 2, 0.1, 0.1, H, 'steel')  # rear post
+        loc.box(TRAILER_FRONT + 0.03, 0, f + H / 2, 0.06, W, H, 'truck_box')      # front wall
+        loc.box(cx, 0, f + H + 0.025, L, W, 0.05, 'truck_box')                    # roof
+        loc.box(TRAILER_REAR - 0.02, 0, f - 0.12, 0.08, W, 0.2, 'yellow')         # rear bumper
         loc.box(4.3, 0, 1.6, 2.2, 2.4, 2.4, 'truck_cab', collide=True)
         loc.box(5.42, 0, 2.1, 0.02, 2.0, 0.9, 'glass')
         for dx in (-4.5, -3.3, 3.8):

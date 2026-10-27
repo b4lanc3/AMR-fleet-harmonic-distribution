@@ -565,7 +565,8 @@ class Production:
         "B1=run,in,open,fill,out|age age ...;C1=..." - run 0 while blocked,
         `in` full cartons waiting on the input pedestal, `open` products left in
         the open carton, `fill` products in the output carton, `out` full
-        output cartons, ages [s] of the products on the way (oldest first)."""
+        output cartons, ages [s] of the products on the way (oldest first);
+        then "G1=n;..." cartons loaded into the truck at every shipping gate."""
         parts = []
         for ln in self.lines.values():
             parts.append(_gz(ln.id, ln.status, ln.input_kits, ln.material, ln.box_fill,
@@ -573,6 +574,8 @@ class Production:
         for pk in self.packers.values():
             parts.append(_gz(pk.id, pk.status, pk.input_boxes, pk.current, pk.pallet_fill,
                              pk.out_pallets, pk.items))
+        for g in self.gates:                # cartons in the truck at every gate
+            parts.append(f'{g}={self.truck_load.get(g, 0)}')
         return ';'.join(parts)
 
     def snapshot(self) -> dict:

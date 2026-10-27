@@ -62,7 +62,8 @@ def test_auto_lines_follow_the_fleet_size(layout):
 def test_gazebo_state_lists_every_line(layout):
     mes = _mes(layout)
     state = dict(part.split('=') for part in mes.gz_state().split(';'))
-    assert len(state) == len(layout['lines'])
+    assert len(state) == len(layout['lines']) + len(mes.gates)
+    assert all(state[g] == '0' for g in mes.gates)            # empty trucks
     head, ages = state['B1'].split('|')
     run, n_in, open_left, fill, n_out = map(int, head.split(','))
     ln = mes.lines['B1']

@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 KIT_DELIVERY = 'KIT_DELIVERY'      # A  -> B_IN  (component kit)
-BOX_TRANSFER = 'BOX_TRANSFER'      # B_OUT -> C_IN (box of unpacked products)
-FG_DELIVERY = 'FG_DELIVERY'        # C_OUT -> D (finished, packaged products)
+FG_STORE = 'FG_STORE'              # B_OUT -> D inbound (carton of finished products)
+FG_PICK = 'FG_PICK'                # D outbound -> C_IN (finished products to packaging)
+SHIPMENT = 'SHIPMENT'              # C_OUT -> G gate (packed goods onto the truck)
 MANUAL = 'MANUAL'
 
 QUEUED = 'QUEUED'

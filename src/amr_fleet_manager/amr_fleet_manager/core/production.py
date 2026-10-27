@@ -1,4 +1,5 @@
-"""Simulated MES: production lines, packaging lines and storage.
+"""Simulated MES: production lines, finished goods warehouse, packaging
+lines and shipping gates.
 
 Material flow (one carton per AMR trip):
 
@@ -7,14 +8,19 @@ Material flow (one carton per AMR trip):
       loader arm puts the component on the belt, the line machines it, the
       loader arm at the end packs the product into the carton on the output
       pedestal (lead time = loader + belt + drop); full carton -> output buffer
-  B_k output (carton)     --BOX_TRANSFER-->  C_m input pedestal
+  B_k output (carton)     --FG_STORE-->  D inbound station (warehouse stock)
+  D outbound station      --FG_PICK--->  C_m input pedestal
   C_m wraps every product of the carton the same way (pack_time takt) into a
-      finished goods carton; full carton -> output buffer
-  C_m output (carton)     --FG_DELIVERY-->   D_j finished goods storage
+      shipping carton; full carton -> output buffer
+  C_m output (carton)     --SHIPMENT-->  G_j shipping gate (truck)
 
-The model raises task requests when buffers need service and escalates the
-task priority when a line is about to starve or block.  With active_lines:
-auto only as many lines run as the fleet can serve (west lines first).
+The warehouse decouples production and packaging: it starts with stock (the
+packaging lines run from t = 0), a full warehouse holds the production lines
+back, an empty one the packaging lines.  A truck leaves its gate when it is
+full and the next one docks.  The model raises task requests when buffers
+need service and escalates the task priority when a line is about to starve
+or block.  With active_lines: auto only as many lines run as the fleet can
+serve (west lines first).
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from .layout import line_lead_time
-from .tasks import BOX_TRANSFER, FG_DELIVERY, KIT_DELIVERY, Task
+from .tasks import FG_PICK, FG_STORE, KIT_DELIVERY, SHIPMENT, Task
 
 RUNNING = 'RUNNING'
 STARVED = 'STARVED'
@@ -102,8 +108,17 @@ class Production:
         self.load_time = float(process.get('load_time', 8.0))
         self.unload_time = float(process.get('unload_time', 8.0))
         self.supply = list(process.get('supply_stations', []))
-        self.storage = list(process.get('storage_stations', []))
-        self.storage_capacity = int(process.get('storage_capacity', 240))
+        wh = process.get('warehouse', {}) or {}
+        self.wh_in = list(wh.get('inbound', []))
+        self.wh_out = list(wh.get('outbound', []))
+        self.wh_capacity = int(wh.get('capacity', 48))        # cartons
+        self.stock = min(self.wh_capacity, int(wh.get('initial_stock', 0)))
+        self.wh_incoming = 0        # FG_STORE tasks created and not yet unloaded
+        self.wh_reserved = 0        # FG_PICK tasks created and not yet loaded
+        self.gates = list(process.get('gates', []))
+        self.truck_capacity = int(process.get('truck_capacity', 20))     # cartons
+        self.truck_load: Dict[str, int] = {g: 0 for g in self.gates}
+        self.trucks_out: Dict[str, int] = {g: 0 for g in self.gates}
         self.auto_lines = str(process.get('active_lines', 'all')).lower() == 'auto'
         self.robots_per_line = max(0.1, float(process.get('robots_per_line', 2.0)))
         geo = {ln['id']: ln for ln in lines or []}
@@ -151,14 +166,13 @@ class Production:
                 pk.input_boxes = min(1, pk.input_capacity)
                 pk.current = (pk.pallet_capacity * 2) // 3
                 pk.items = self._wip(pk)
-        self.stored: Dict[str, int] = {d: 0 for d in self.storage}
-        self.shipped = 0
         self.elapsed = 0.0
         self.kits_delivered = 0
-        self.boxes_transferred = 0
-        self.finished_stored = 0
+        self.cartons_stored = 0     # cartons put away in the warehouse
+        self.cartons_picked = 0     # cartons taken out of it to packaging
+        self.cartons_shipped = 0
+        self.products_shipped = 0
         self._rr_supply = 0
-        self._rr_storage = 0
         self.events: List[str] = []
         self.supply_picked: Dict[str, int] = {a: 0 for a in self.supply}
         self.fleet_size = -1
@@ -180,7 +194,14 @@ class Production:
         if not self.auto_lines or robots <= 0:
             return
         want = min(len(self.lines), max(1, math.ceil(robots / self.robots_per_line - 1e-9)))
-        if self.fleet_size < 0 or want > self._active_n:
+        if self.fleet_size < 0:
+            self._apply_active(want)
+            # the factory was running with this fleet: no work in progress on
+            # the lines that are off (it would only flood the fleet with tasks)
+            for fl in list(self.lines.values()) + list(self.packers.values()):
+                if not fl.active:
+                    self._clear(fl)
+        elif want > self._active_n:
             self._down_since = None
             self._apply_active(want)
         elif want < self._active_n:
@@ -192,6 +213,15 @@ class Production:
         else:
             self._down_since = None
         self.fleet_size = robots
+
+    @staticmethod
+    def _clear(fl: Flow) -> None:
+        fl.items, fl.progress = [], 0.0
+        if isinstance(fl, ProductionLine):
+            fl.material = fl.box_fill = fl.out_boxes = 0
+            fl.input_kits = 0
+        else:
+            fl.current = fl.pallet_fill = fl.out_pallets = fl.input_boxes = 0
 
     def _apply_active(self, n: int) -> None:
         if n != self._active_n:
@@ -314,28 +344,43 @@ class Production:
                 ln.inbound += 1
                 supply_load[src] = supply_load.get(src, 0) + 1
                 out.append(t)
-        # cartons of unpacked products to packaging (fullest line first)
-        for ln in sorted(self.lines.values(), key=lambda x: (-x.out_boxes, x.id)):
-            while ln.out_boxes - ln.outbound > 0:
-                dst = self._pick_packer()
-                if dst is None:
-                    break
+        # full cartons of the production lines into the warehouse (fullest first)
+        for ln in sorted(self.lines.values(), key=lambda x: (-x.out_boxes, _order(x.id))):
+            while (ln.out_boxes - ln.outbound > 0 and self.wh_in
+                   and self.stock + self.wh_incoming < self.wh_capacity):
+                dst = self._least_loaded(self.wh_in, storage_load)
                 blocked = ln.out_boxes >= ln.output_capacity
-                t = Task(BOX_TRANSFER, ln.output, dst.input, priority=2 if blocked else 1,
-                         description=f'Thung {ln.box_capacity} SP chua dong goi {ln.id} -> {dst.id}',
-                         cargo=f'Thung {ln.box_capacity} SP chua dong goi',
-                         meta={'line': ln.id, 'packer': dst.id}, created=now)
+                t = Task(FG_STORE, ln.output, dst, priority=2 if blocked else 1,
+                         description=f'Nhap kho {ln.id} -> {dst}',
+                         cargo=f'Thung {ln.box_capacity} thanh pham',
+                         meta={'line': ln.id}, created=now)
                 ln.outbound += 1
-                dst.inbound += 1
+                self.wh_incoming += 1
+                storage_load[dst] = storage_load.get(dst, 0) + 1
                 out.append(t)
-        # finished goods cartons to storage
+        # warehouse -> packaging lines (the emptiest first)
+        while self.stock - self.wh_reserved > 0 and self.wh_out:
+            pk = self._pick_packer()
+            if pk is None:
+                break
+            src = self._least_loaded(self.wh_out, storage_load)
+            starving = pk.input_boxes == 0 and pk.current <= 2
+            t = Task(FG_PICK, src, pk.input, priority=2 if starving else 1,
+                     description=f'Xuat kho {src} -> {pk.id}',
+                     cargo=f'Thung {self._box_size()} thanh pham',
+                     meta={'packer': pk.id}, created=now)
+            pk.inbound += 1
+            self.wh_reserved += 1
+            storage_load[src] = storage_load.get(src, 0) + 1
+            out.append(t)
+        # packed goods to the shipping gates
         for pk in self.packers.values():
-            while pk.out_pallets - pk.outbound > 0:
-                dst = self._pick_storage(storage_load)
+            while pk.out_pallets - pk.outbound > 0 and self.gates:
+                dst = self._least_loaded(self.gates, storage_load)
                 blocked = pk.out_pallets >= pk.output_capacity
-                t = Task(FG_DELIVERY, pk.output, dst, priority=2 if blocked else 1,
-                         description=f'Thung {pk.pallet_capacity} thanh pham {pk.id} -> {dst}',
-                         cargo=f'Thung {pk.pallet_capacity} SP thanh pham',
+                t = Task(SHIPMENT, pk.output, dst, priority=2 if blocked else 1,
+                         description=f'Xuat hang {pk.id} -> cong {dst}',
+                         cargo=f'Thung {pk.pallet_capacity} SP da dong goi',
                          meta={'packer': pk.id}, created=now)
                 pk.outbound += 1
                 storage_load[dst] = storage_load.get(dst, 0) + 1
@@ -351,6 +396,12 @@ class Production:
         self._rr_supply = (self.supply.index(best) + 1) % n
         return best
 
+    @staticmethod
+    def _least_loaded(stations: List[str], load: Dict[str, int]) -> str:
+        """The station with the fewest robots booked / tasks queued (first one
+        on a tie: the stations are listed in the order of the traffic flow)."""
+        return min(stations, key=lambda s: load.get(s, 0))
+
     def _pick_packer(self) -> Optional[PackagingLine]:
         cands = [pk for pk in self.packers.values()
                  if pk.active and pk.input_boxes + pk.inbound < pk.input_capacity]
@@ -359,23 +410,20 @@ class Production:
         return min(cands, key=lambda pk: (pk.input_boxes + pk.inbound
                                           + (1 if pk.current > 0 else 0), _order(pk.id)))
 
-    def _pick_storage(self, load: Dict[str, int]) -> str:
-        n = len(self.storage)
-        order = [self.storage[(self._rr_storage + i) % n] for i in range(n)]
-        best = min(order, key=lambda s: load.get(s, 0))
-        self._rr_storage = (self.storage.index(best) + 1) % n
-        return best
-
     # ------------------------------------------------------ transfers
     def on_pickup(self, task: Task) -> None:
         if task.type == KIT_DELIVERY and task.pickup in self.supply_picked:
             self.supply_picked[task.pickup] += 1
-        elif task.type == BOX_TRANSFER:
+        elif task.type == FG_STORE:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln:
                 ln.out_boxes = max(0, ln.out_boxes - 1)
                 ln.outbound = max(0, ln.outbound - 1)
-        elif task.type == FG_DELIVERY:
+        elif task.type == FG_PICK:
+            self.stock = max(0, self.stock - 1)
+            self.wh_reserved = max(0, self.wh_reserved - 1)
+            self.cartons_picked += 1
+        elif task.type == SHIPMENT:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk:
                 pk.out_pallets = max(0, pk.out_pallets - 1)
@@ -388,21 +436,27 @@ class Production:
                 ln.input_kits += 1
                 ln.inbound = max(0, ln.inbound - 1)
                 self.kits_delivered += 1
-        elif task.type == BOX_TRANSFER:
+        elif task.type == FG_STORE:
+            self.stock = min(self.wh_capacity, self.stock + 1)
+            self.wh_incoming = max(0, self.wh_incoming - 1)
+            self.cartons_stored += 1
+        elif task.type == FG_PICK:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk:
                 pk.input_boxes += 1
                 pk.inbound = max(0, pk.inbound - 1)
-                self.boxes_transferred += 1
-        elif task.type == FG_DELIVERY:
-            n = self.packers[task.meta['packer']].pallet_capacity \
-                if task.meta.get('packer') in self.packers else 0
-            self.stored[task.dropoff] = self.stored.get(task.dropoff, 0) + n
-            self.finished_stored += n
-            if self.stored[task.dropoff] >= self.storage_capacity:
-                self.shipped += self.stored[task.dropoff]
-                self.stored[task.dropoff] = 0
-                self.events.append(f'{task.dropoff}: kho day -> xuat hang')
+        elif task.type == SHIPMENT:
+            pk = self.packers.get(task.meta.get('packer', ''))
+            n = pk.pallet_capacity if pk else self._box_size()
+            gate = task.dropoff
+            self.cartons_shipped += 1
+            self.products_shipped += n
+            self.truck_load[gate] = self.truck_load.get(gate, 0) + 1
+            if self.truck_load[gate] >= self.truck_capacity:
+                self.truck_load[gate] = 0
+                self.trucks_out[gate] = self.trucks_out.get(gate, 0) + 1
+                self.events.append(f'Cổng {gate}: xe tải đủ {self.truck_capacity} thùng → xuất bến, '
+                                   f'xe mới vào')
 
     def urgency(self, task: Task) -> int:
         """Current priority level (0..3) of an MES task from the line state:
@@ -411,14 +465,16 @@ class Production:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln is not None and ln.input_kits == 0 and ln.material <= 2:
                 return 2
-        elif task.type == BOX_TRANSFER:
+        elif task.type == FG_STORE:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln is not None and ln.out_boxes >= ln.output_capacity:
                 return 2
+        elif task.type == FG_PICK:
             pk = self.packers.get(task.meta.get('packer', ''))
-            if pk is not None and pk.status == STARVED:
+            if pk is not None and (pk.status == STARVED
+                                   or (pk.input_boxes == 0 and pk.current <= 2)):
                 return 2
-        elif task.type == FG_DELIVERY:
+        elif task.type == SHIPMENT:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk is not None and pk.out_pallets >= pk.output_capacity:
                 return 2
@@ -439,28 +495,28 @@ class Production:
 
     def deadline(self, task: Task) -> float:
         """Seconds from now until the line this task serves stops without it:
-        a production line runs out of material (kit), a production line blocks
-        on a full output or the packer runs out of cartons (box transfer), a
-        packer blocks on a full output (finished goods).  inf: no constraint
-        (manual task)."""
+        a production line runs out of material (kit) or blocks on a full output
+        (warehouse put-away), a packer runs out of cartons (warehouse pick) or
+        blocks on a full output (shipment).  inf: no constraint (manual task)."""
         if task.type == KIT_DELIVERY:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln is None:
                 return math.inf
             left = ln.material + ln.input_kits * ln.products_per_kit
             return max(0.0, left * ln.takt - ln.progress)
-        if task.type == BOX_TRANSFER:
-            out = math.inf
+        if task.type == FG_STORE:
             ln = self.lines.get(task.meta.get('line', ''))
-            if ln is not None:
-                out = self._block_time(ln, ln.box_fill, ln.box_capacity, ln.out_boxes,
-                                       ln.output_capacity)
+            if ln is None:
+                return math.inf
+            return self._block_time(ln, ln.box_fill, ln.box_capacity, ln.out_boxes,
+                                    ln.output_capacity)
+        if task.type == FG_PICK:
             pk = self.packers.get(task.meta.get('packer', ''))
-            if pk is not None:
-                left = pk.current + pk.input_boxes * self._box_size()
-                out = min(out, max(0.0, left * pk.takt - pk.progress))
-            return out
-        if task.type == FG_DELIVERY:
+            if pk is None:
+                return math.inf
+            left = pk.current + pk.input_boxes * self._box_size()
+            return max(0.0, left * pk.takt - pk.progress)
+        if task.type == SHIPMENT:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk is None:
                 return math.inf
@@ -474,14 +530,17 @@ class Production:
             ln = self.lines.get(task.meta.get('line', ''))
             if ln:
                 ln.inbound = max(0, ln.inbound - 1)
-        elif task.type == BOX_TRANSFER:
+        elif task.type == FG_STORE:
             ln = self.lines.get(task.meta.get('line', ''))
-            pk = self.packers.get(task.meta.get('packer', ''))
             if ln:
                 ln.outbound = max(0, ln.outbound - 1)
+            self.wh_incoming = max(0, self.wh_incoming - 1)
+        elif task.type == FG_PICK:
+            pk = self.packers.get(task.meta.get('packer', ''))
             if pk:
                 pk.inbound = max(0, pk.inbound - 1)
-        elif task.type == FG_DELIVERY:
+            self.wh_reserved = max(0, self.wh_reserved - 1)
+        elif task.type == SHIPMENT:
             pk = self.packers.get(task.meta.get('packer', ''))
             if pk:
                 pk.outbound = max(0, pk.outbound - 1)
@@ -496,9 +555,10 @@ class Production:
         return sum(pk.packaged for pk in self.packers.values())
 
     def throughput_per_hour(self) -> float:
+        """Products shipped (packed and loaded onto a truck) per hour."""
         if self.elapsed < 60.0:
             return 0.0
-        return self.finished_stored / self.elapsed * 3600.0
+        return self.products_shipped / self.elapsed * 3600.0
 
     def gz_state(self) -> str:
         """Line state for the FactoryLines system of Gazebo, one entry per line:
@@ -535,13 +595,22 @@ class Production:
                 'output_capacity': pk.output_capacity, 'produced': pk.packaged,
                 'utilization': pk.busy_time / self.elapsed if self.elapsed > 0 else 0.0,
                 'active': pk.active, 'on_belt': len(pk.items)})
-        for d in self.storage:
+        if self.wh_in or self.wh_out:
             lines.append({
-                'line_id': d, 'line_type': 'storage', 'name': f'Kho thanh pham {d}',
-                'status': IDLE, 'input_buffer': self.stored.get(d, 0),
-                'input_capacity': self.storage_capacity, 'inbound': 0,
-                'work_in_progress': 0, 'output_buffer': 0, 'output_capacity': 0,
-                'produced': self.stored.get(d, 0), 'utilization': 0.0})
+                'line_id': 'D', 'line_type': 'warehouse', 'name': 'Kho thanh pham',
+                'status': BLOCKED if self.stock >= self.wh_capacity else
+                          (STARVED if self.stock == 0 else RUNNING),
+                'input_buffer': self.stock, 'input_capacity': self.wh_capacity,
+                'inbound': self.wh_incoming, 'work_in_progress': 0,
+                'output_buffer': self.wh_reserved, 'output_capacity': 0,
+                'produced': self.cartons_stored, 'utilization': self.stock / max(1, self.wh_capacity)})
+        for g in self.gates:
+            lines.append({
+                'line_id': g, 'line_type': 'gate', 'name': f'Cong xuat hang {g}',
+                'status': RUNNING, 'input_buffer': self.truck_load.get(g, 0),
+                'input_capacity': self.truck_capacity, 'inbound': 0,
+                'work_in_progress': 0, 'output_buffer': self.trucks_out.get(g, 0),
+                'output_capacity': 0, 'produced': self.trucks_out.get(g, 0), 'utilization': 0.0})
         for a in self.supply:
             lines.append({
                 'line_id': a, 'line_type': 'supply', 'name': f'Kho linh kien {a}',
@@ -552,9 +621,14 @@ class Production:
             'elapsed_s': self.elapsed, 'lines': lines,
             'kits_delivered': self.kits_delivered,
             'products_made': self.products_made,
-            'boxes_transferred': self.boxes_transferred,
+            'cartons_stored': self.cartons_stored,
+            'cartons_picked': self.cartons_picked,
+            'warehouse_stock': self.stock,
+            'warehouse_capacity': self.wh_capacity,
             'products_packaged': self.products_packaged,
-            'finished_stored': self.finished_stored,
+            'cartons_shipped': self.cartons_shipped,
+            'products_shipped': self.products_shipped,
+            'trucks_departed': sum(self.trucks_out.values()),
             'throughput_per_hour': self.throughput_per_hour(),
             'active_lines': self.active_lines,
         }

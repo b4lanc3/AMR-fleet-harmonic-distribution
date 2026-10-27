@@ -64,7 +64,7 @@ def main(argv=None) -> None:
             m = run_one(layout, n, args.minutes, fleet, follower)
             rows.append((score(m), n, combo, m))
             print(f'{n:2d} robots {dict(zip([k for _, k in keys], combo))} -> score {score(m):7.1f} '
-                  f'| thr {m.throughput_per_hour:4.0f}/h stored {m.finished_stored} '
+                  f'| thr {m.throughput_per_hour:4.0f}/h shipped {m.products_shipped} '
                   f'| stops {m.stops_per_km:.1f}/km brakes {m.hard_brakes} '
                   f'| avg {m.avg_speed:.2f} m/s | coll {m.collisions}', flush=True)
     print('\nbest first:')

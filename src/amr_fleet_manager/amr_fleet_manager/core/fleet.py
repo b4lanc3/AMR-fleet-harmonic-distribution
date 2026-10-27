@@ -31,7 +31,7 @@ from typing import Deque, Dict, List, Optional, Sequence, Set, Tuple
 
 from .assign import hungarian
 from .graph import CHARGER, LANE, PARKING, YIELD, TrafficGraph
-from .layout import LINE_CELLS, build_graph
+from .layout import ARM_CELLS, build_graph
 from .production import Production
 from .tasks import (IN_TRANSIT, LOADING as T_LOADING, MANUAL, QUEUED,
                     TO_PICKUP as T_TO_PICKUP, UNLOADING as T_UNLOADING, Task, TaskBook)
@@ -256,7 +256,7 @@ class FleetCore:
         self.passes = 0
         # stations served by a transfer arm (line inputs / outputs, Gazebo)
         self.arm_stations = {st['id'] for st in layout.get('stations', []) or []
-                             if st.get('object') in LINE_CELLS}
+                             if st.get('object') in ARM_CELLS}
         self.unplanned_stops = 0
         self.passing: Dict[frozenset, dict] = {}
         self.deadlocks = 0

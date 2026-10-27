@@ -54,6 +54,7 @@ class Edge:
     speed: float
     lane: Optional[str] = None
     two_way: bool = False
+    extra: float = 0.0          # planning cost [s] on top of the travel time
 
     @property
     def time(self) -> float:
@@ -114,14 +115,14 @@ class TrafficGraph:
         return idx
 
     def add_edge(self, u: int, v: int, speed: float, lane: Optional[str] = None,
-                 two_way: bool = False) -> None:
+                 two_way: bool = False, extra: float = 0.0) -> None:
         if u == v:
             return
         for e in self.out_edges[u]:
             if e.v == v:
                 return
         length = math.dist(self.nodes[u].xy, self.nodes[v].xy)
-        edge = Edge(u, v, length, speed, lane, two_way)
+        edge = Edge(u, v, length, speed, lane, two_way, extra)
         self.out_edges[u].append(edge)
         self.in_edges[v].append(edge)
 
@@ -215,7 +216,7 @@ class TrafficGraph:
         c = e.time
         if e.two_way and e.lane is not None:
             c *= self.two_way_cost_factor
-        return c
+        return c + e.extra
 
     def plan(self, start: int, goal: int,
              node_penalty: Optional[Dict[int, float]] = None,

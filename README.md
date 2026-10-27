@@ -1,7 +1,10 @@
 # AMR Fleet Harmonic Distribution
 
 Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong một nhà máy hoàn chỉnh 140 m × 75 m, chạy trên
-**ROS 2 Jazzy + Gazebo Harmonic** (tương thích Jetty), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
+**ROS 2 Humble + Gazebo Harmonic** (Ubuntu 22.04), **Nav2 + AMCL** trên từng robot và **RViz2**. Hệ thống có:
+
+> Nhánh **`humble`**: ROS 2 Humble (Ubuntu 22.04) + Gazebo Harmonic. Bản cho ROS 2 Jazzy (Ubuntu 24.04): nhánh
+> [`jazzy`](../../tree/jazzy). Mã nguồn hai nhánh giống nhau (tự nhận bản ROS khi build / launch), chỉ khác hướng dẫn.
 
 * **Nhà máy đầy đủ**: tường panel cách nhiệt, dải cửa sổ, cửa cuộn, cột thép, dầm mái, đèn (có nguồn sáng thật),
   sàn epoxy chia khu và vạch làn, kệ đầy thùng/bin linh kiện, kệ pallet thành phẩm, văn phòng 2 tầng, xe tải ở dock,
@@ -241,14 +244,22 @@ Gazebo: AMCL lệch 8 cm nhưng robot vẫn dừng cách vị trí dock đúng 1
 
 ## 6. Cài đặt
 
-Ubuntu 24.04 + ROS 2 Jazzy (đi kèm Gazebo Harmonic qua `ros_gz`):
+Ubuntu 22.04 + ROS 2 Humble + Gazebo Harmonic (không cần nâng lên 24.04):
 
 ```bash
-sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-xacro ros-jazzy-navigation2 \
-     ros-jazzy-nav2-rviz-plugins ros-jazzy-robot-state-publisher python3-colcon-common-extensions
+# Gazebo Harmonic từ packages.osrfoundation.org
+sudo curl https://packages.osrfoundation.org/gazebo.gpg -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] \
+  http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | \
+  sudo tee /etc/apt/sources.list.d/gazebo-stable.list
+sudo apt update && sudo apt install gz-harmonic
+sudo apt install ros-humble-desktop ros-humble-xacro ros-humble-navigation2 ros-humble-nav2-rviz-plugins \
+     ros-humble-robot-state-publisher python3-colcon-common-extensions
+# ros_gz cho Harmonic: ros-humble-ros-gzharmonic, hoặc build ros_gz nhánh humble với GZ_VERSION=harmonic
+# docking: ros-humble-opennav-docking ros-humble-opennav-docking-msgs, hoặc build opennav_docking nhánh humble
 mkdir -p ~/amr_ws && cd ~/amr_ws
-git clone <repo này> src/AMR-fleet-harmonic-distribution     # hoặc copy thư mục src/
-source /opt/ros/jazzy/setup.bash
+git clone -b humble https://github.com/b4lanc3/AMR-fleet-harmonic-distribution.git src/AMR-fleet-harmonic-distribution
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ```
@@ -256,13 +267,10 @@ source install/setup.bash
 `amr_gazebo` biên dịch system C++ `FactoryLines` (work cell, thùng, sản phẩm) và `Pedestrians` (gz-sim 8); hook môi trường tự thêm
 `GZ_SIM_SYSTEM_PLUGIN_PATH` và `GZ_SIM_RESOURCE_PATH` khi `source install/setup.bash`.
 
-**Ubuntu 22.04 + ROS 2 Humble + Gazebo Harmonic** (không cần nâng lên 24.04): cài `gz-harmonic` từ
-packages.osrfoundation.org, build `ros_gz` nhánh `humble` với `GZ_VERSION=harmonic` (hoặc `ros-humble-ros-gzharmonic`),
-cài `ros-humble-opennav-docking ros-humble-opennav-docking-msgs` (hoặc build `opennav_docking` nhánh `humble` +
-`nav2_graceful_controller` từ source). `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi không có gói `*_vendor`,
-`navigation.launch.py` tự đổi tham số `collision_monitor` sang định dạng Nav2 1.1 khi `ROS_DISTRO=humble`
-(points dạng mảng phẳng, `max_points`, một `source_timeout` chung). Khác biệt còn lại trên Humble: không có
-EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
+Trên Humble: `amr_gazebo` tự dùng thư viện hệ thống gz-sim 8 khi không có gói `*_vendor`, `navigation.launch.py` tự
+đổi tham số `collision_monitor` sang định dạng Nav2 1.1 khi `ROS_DISTRO=humble` (points dạng mảng phẳng,
+`max_points`, một `source_timeout` chung), docking dùng `opennav_docking_msgs` của bản backport. Khác biệt còn lại:
+không có EventsExecutor của rclpy (tự lùi về SingleThreadedExecutor) và collision_monitor không phát
 `collision_monitor_state` (trường `obstacle_stop` trên dashboard luôn false).
 
 **Chạy nhanh trên máy này** (Humble + Harmonic, GPU NVIDIA): `~/AMR-Fleet-Distribution/run_fleet.sh [số robot]`

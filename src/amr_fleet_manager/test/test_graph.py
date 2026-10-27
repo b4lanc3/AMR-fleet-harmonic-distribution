@@ -45,3 +45,14 @@ def test_yield_bays_are_off_lane(graph):
         # a bay is reachable from a lane and leads back to a lane
         assert graph.in_edges[y] and graph.out_edges[y]
     assert any(n.kind == INTERSECTION for n in graph.nodes)
+
+
+def test_crossovers_let_robots_turn_back(graph):
+    """A robot on one lane of a dual aisle turns across to the other lane at a
+    crossover instead of driving round the block."""
+    assert graph.crossovers
+    a, b = graph.crossovers[0]
+    assert graph.plan(a, b) == [a, b] and graph.plan(b, a) == [b, a]
+    assert graph.distance(a, b) < 2.5
+    for u, v in graph.crossovers:              # only plain lane nodes
+        assert graph.nodes[u].kind == 'lane' and graph.nodes[v].kind == 'lane'

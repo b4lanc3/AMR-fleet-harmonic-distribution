@@ -2,6 +2,7 @@ import copy
 
 from amr_fleet_manager.core.layout import line_lead_time
 from amr_fleet_manager.core.production import BLOCKED, Production
+from amr_fleet_manager.core.tasks import FG_PICK, FG_STORE, SHIPMENT
 
 
 def _mes(layout, **process):
@@ -67,3 +68,47 @@ def test_gazebo_state_lists_every_line(layout):
     ln = mes.lines['B1']
     assert (n_in, open_left, fill, n_out) == (ln.input_kits, ln.material, ln.box_fill, ln.out_boxes)
     assert [float(a) for a in ages.split()] == [round(a, 2) for a in ln.items]
+
+
+def _serve(mes, task):
+    mes.on_pickup(task)
+    mes.on_dropoff(task)
+
+
+def test_material_flows_through_the_warehouse_to_the_gates(layout):
+    """B_OUT -> warehouse (FG_STORE), warehouse -> C_IN (FG_PICK),
+    C_OUT -> gate (SHIPMENT); a full truck leaves."""
+    mes = _mes(layout, initial_wip=False, active_lines='all', truck_capacity=2,
+               warehouse={'inbound': ['DI1', 'DI2'], 'outbound': ['DO1', 'DO2'],
+                          'capacity': 3, 'initial_stock': 0})
+    ln, pk = mes.lines['B1'], mes.packers['C1']
+    ln.out_boxes = 1
+    tasks = mes.update(0.1, 0.0, {}, {})
+    store = [t for t in tasks if t.type == FG_STORE]
+    assert len(store) == 1 and store[0].pickup == ln.output and store[0].dropoff in ('DI1', 'DI2')
+    assert not [t for t in tasks if t.type == FG_PICK]          # warehouse empty
+    _serve(mes, store[0])
+    assert mes.stock == 1 and ln.out_boxes == 0
+    picks = [t for t in mes.update(0.1, 0.1, {}, {}) if t.type == FG_PICK]
+    assert len(picks) == 1 and picks[0].pickup in ('DO1', 'DO2')
+    assert picks[0].dropoff == mes.packers[picks[0].meta['packer']].input
+    _serve(mes, picks[0])
+    assert mes.stock == 0 and mes.packers[picks[0].meta['packer']].input_boxes == 1
+    pk.out_pallets = 2
+    ships = [t for t in mes.update(0.1, 0.2, {}, {}) if t.type == SHIPMENT]
+    assert len(ships) == 2 and all(t.dropoff in layout['process']['gates'] for t in ships)
+    for t in ships:
+        t.dropoff = 'G1'
+        _serve(mes, t)
+    assert mes.cartons_shipped == 2 and mes.trucks_out['G1'] == 1 and mes.truck_load['G1'] == 0
+    assert mes.products_shipped == 2 * pk.pallet_capacity
+
+
+def test_full_warehouse_holds_the_production_back(layout):
+    mes = _mes(layout, initial_wip=False, active_lines='all',
+               warehouse={'inbound': ['DI1'], 'outbound': ['DO1'], 'capacity': 2,
+                          'initial_stock': 2})
+    mes.lines['B1'].out_boxes = 1
+    for pk in mes.packers.values():
+        pk.active = False                                       # nobody takes stock out
+    assert not [t for t in mes.update(0.1, 0.0, {}, {}) if t.type == FG_STORE]

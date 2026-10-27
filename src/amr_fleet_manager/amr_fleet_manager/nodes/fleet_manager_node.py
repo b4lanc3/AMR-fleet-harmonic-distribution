@@ -281,8 +281,9 @@ class FleetManagerNode(Node):
                 setattr(ls, k, int(ln[k]))
             ls.utilization = float(ln['utilization'])
             msg.lines.append(ls)
-        for k in ('kits_delivered', 'products_made', 'boxes_transferred', 'products_packaged',
-                  'finished_stored'):
+        for k in ('kits_delivered', 'products_made', 'cartons_stored', 'cartons_picked',
+                  'warehouse_stock', 'products_packaged', 'cartons_shipped', 'products_shipped',
+                  'trucks_departed'):
             setattr(msg, k, int(p[k]))
         msg.throughput_per_hour = float(p['throughput_per_hour'])
         self.prod_pub.publish(msg)

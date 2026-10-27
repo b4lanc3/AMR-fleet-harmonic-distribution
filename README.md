@@ -34,10 +34,10 @@ Mô phỏng **đội 5–15 AMR (tối đa 30)** vận chuyển nội bộ trong
 |---|---|
 | Fleet ≥ 10–15 AMR | `num_robots:=12` (mặc định), 30 chỗ đỗ nên tối đa 30 robot. Đã kiểm thử 10/12/15 robot (mô phỏng headless 30 phút) và Gazebo + Nav2 với 2–3 robot (container không GPU) |
 | Trạm sạc tự động cho cả đội | 6 dock (CH1–CH6) rải dọc trục chính, mỗi dock nằm giữa hai dây chuyền; hàng đợi sạc, sạc tranh thủ luân phiên (≤ 40 % đội đi sạc cùng lúc), nhường dock cho robot pin thấp |
-| Nhà máy rộng, 4 khu | Khu A kho linh kiện (5 trạm cấp) · Khu B **8 dây chuyền sản xuất** · Khu C **8 dây chuyền đóng gói** · Khu D kho thành phẩm (6 trạm) |
+| Nhà máy rộng, 5 khu | Khu A kho linh kiện (5 trạm cấp) · Khu B **8 dây chuyền sản xuất** · Khu D **kho thành phẩm** (2 trạm nhập kho, 2 trạm xuất kho) · Khu C **8 dây chuyền đóng gói** · Khu G **3 cổng xuất hàng** có xe tải |
 | Mô phỏng cả dây chuyền | 8 + 8 dây chuyền, mỗi dây có đủ trạm máy và 2 work cell (xem mục 2). System `FactoryLines` vẽ đúng từng thùng, từng sản phẩm theo MES: gắp thùng lên bệ, nạp từng SP lên băng, SP đổi dạng qua quy trình, xếp vào thùng đầu ra |
 | Map nhà máy đầy đủ (tường, sàn, hàng hoá, đèn…) | World sinh từ layout: ~5000 chi tiết (gộp thành mesh để render nhanh), 15 đèn điểm + đèn trần phát sáng. Bản đồ AMCL cắt đúng ở độ cao lidar |
-| Chu trình sản xuất | A (kit linh kiện) → B_IN → dây chuyền SX → SP chưa đóng gói xếp vào **thùng** ở B_OUT → C_IN → đóng gói từng SP → C_OUT → D |
+| Chu trình sản xuất | A (kit linh kiện) → B_IN → dây chuyền SX → thành phẩm xếp **thùng 16 SP** ở B_OUT → **nhập kho D** → **xuất kho D** → C_IN → đóng gói từng SP → C_OUT → **cổng xuất G → xe tải** |
 | Chạy Nav2 và AMCL | Mỗi robot: AMCL + controller_server + collision_monitor (+ planner/behavior/bt_navigator nếu `nav2_full_stack:=true`), một map_server chung |
 | 2 bánh chủ động + 4 bánh tự do, lidar 2D, camera 3D | URDF `amr_description`: diff-drive, 4 caster, một `gpu_lidar` **270°** ở mặt trước, `rgbd_camera` (ảnh + depth + point cloud) |
 | Xem robot số mấy làm gì, route nào, ETA, task tiếp theo | Dashboard web, nhãn trong RViz, `fleet_cli status`, topic `/fleet/state` |
@@ -99,13 +99,13 @@ trong unit test.
       │A3  │ 5 kệ đầy bin/thùng    │  ┆  │ B1  B2  B3  B4        ┆ Ngõ    B5  B6  B7  B8              │ P│ tầng
       │A2  │                       │  ┆  │ (băng tải, CNC, robot hàn, lắp ráp, QC, work cell 2 đầu)  │ P│ (x>140)
       │A1  └───────────────────────┘  ┆  └ B*_OUT xen kẽ dock sạc CH1…CH6 dọc phía Bắc trục chính ───┘ P│
-      │ ═══ Trục chính y=36: 2 làn 1 chiều ═ D5 ═ D6 ══ C1_IN … C4_IN ═════════ C5_IN … C8_IN ══════════ │
+      │ ═══ Trục chính y=36: 2 làn 1 chiều ═ DI1 DI2 DO1 DO2 ══ C1_IN … C4_IN ═══ C5_IN … C8_IN ════════ │
       │P   ┌ Khu D: kho thành phẩm┐  ┆  ┌─ Khu C: 8 dây chuyền ĐÓNG GÓI (x = 45…128) ─────────────────┐ P│
       │P   │ 5 kệ pallet           │  ┆  │ C1  C2  C3  C4        ┆        C5  C6  C7  C8              │ P│
       │P   │                       │  ┆  │ (tháo thùng, máy quấn màng, case packer, work cell 2 đầu) │ P│
       │P   └───────────────────────┘  ┆  └ C1_OUT … C4_OUT ──────┆─────── C5_OUT … C8_OUT ────────────┘ P│
-      │ ═══ Đường Nam y=5: 2 làn 1 chiều ═ D4 ═ D3 ═ D2 ═ D1 ═══════════════════════════════════════════ │
- y=0  └ x=0 ─ Đường Tây x=5 (2 làn) ─ Trục giữa x=35 (2 chiều) ─ Ngõ x=84 (2 chiều) ─ Đường Đông x=135 ┘ x=140
+      │ ═══ Đường Nam y=5: 2 làn 1 chiều ══ G1 ═ G2 ═ G3 (cổng xuất hàng) ══════════════════════════════ │
+ y=0  └ x=0 ─ Đường Tây x=5 ─ [cửa G1 G2 G3, xe tải] ─ Trục giữa x=35 ─ Ngõ x=84 ─ Đường Đông x=135 ┘ x=140
 ```
 
 * **Làn 1 chiều theo luật đi bên phải** (Đường Nam, Trục chính, Đường Bắc, Đường Tây, Đường Đông): hai làn cách nhau 2 m nên
@@ -119,19 +119,25 @@ trong unit test.
 cell robot hàn (có hàng rào an toàn), bàn lắp ráp, cổng QC, máy xếp thùng, đèn tháp báo trạng thái.
 **Một dây chuyền đóng gói (C1–C8)**: tháo thùng, máy quấn màng (flow wrapper), case packer, robot xếp pallet.
 
-**Work cell ở hai đầu mỗi dây chuyền** (system `FactoryLines`, mục `CELL_*` trong `core/layout.py`): bệ 3 ô cạnh
-đầu băng tải, một **tay máy trạm** (cam) và một **tay máy nạp liệu** (xanh), một xe chồng thùng gấp.
+**Work cell ở hai đầu mỗi dây chuyền** (system `FactoryLines`, mục `CELL_*` trong `core/layout.py`): bệ 3 ô xếp
+thành **một hàng song song với làn**, **tay máy trạm** (cam) đứng phía AMR, **tay máy nạp liệu** (xanh, nhỏ hơn 15 %)
+đứng phía băng tải, xe chồng thùng gấp bên cạnh. Mỗi tay chỉ làm việc trong nửa ô của mình; khi phải xoay xa, tay
+máy rút công cụ về gần chân rồi mới xoay, sau đó vươn ra (không quét ngang qua tay kia). Tay nạp liệu chỉ làm với
+thùng đang mở, tay máy trạm chỉ làm với các ô khác. `tools/cell_clearance.py` (và test `test_cell_clearance`) mô
+phỏng lại mọi động tác của hai tay: khe hở nhỏ nhất ≈ 5 cm (bố trí cũ: chồng lấn 23 cm), mọi điểm gắp/đặt đều với tới.
 
 * Đầu vào: tay máy trạm gắp thùng (kit linh kiện / thùng SP chưa đóng gói) từ AMR đặt lên ô trống của bệ. Thùng cũ
   nhất được mở, tay nạp liệu gắp **từng sản phẩm** (mỗi nhịp 22 s / 21 s một SP) đặt lên băng tải. Thùng rỗng được
   tay máy trạm bỏ vào xe thùng gấp.
 * Trên băng: SP chạy từ đầu tới cuối dây chuyền (0.2 m/s) và đổi dạng ở giữa: chi tiết thô → sản phẩm (dây SX),
   sản phẩm → sản phẩm bọc màng (dây đóng gói).
-* Đầu ra: tay nạp liệu xếp từng SP vào thùng mở trên bệ; đủ 12 SP thùng được đóng lại và chờ trên ô của nó; tay máy
+* Đầu ra: tay nạp liệu xếp từng SP vào thùng mở trên bệ; đủ 16 SP thùng được đóng lại và chờ trên ô của nó; tay máy
   trạm gắp **chính thùng đó** lên AMR, rồi lấy thùng mới từ xe thùng gấp đặt vào ô trống.
 
 MES gửi trạng thái từng dây chuyền 4 lần/giây trên `/factory/line_state` (`"B1=run,in,open,fill,out|tuổi SP…"`),
-nên số thùng trên bệ, số SP trong thùng và vị trí từng SP trên băng trong Gazebo luôn khớp số liệu MES.
+nên số thùng trên bệ, số SP trong thùng và vị trí từng SP trên băng trong Gazebo luôn khớp số liệu MES. Sản phẩm
+có đồng hồ riêng trong Gazebo (cập nhật vị trí 120 lần/giây): bản tin MES chỉ thêm SP mới / bỏ SP đã xếp thùng, còn
+khi lệch quá 0,3 s thì dây chuyền chạy nhanh/chậm hơn tối đa 25 % cho tới khi khớp, SP không bao giờ giật lùi.
 
 **Công nhân đi lại trong nhà máy** (Gazebo, system `amr_pedestrians`, mục `people:` trong layout): 8 người mặc áo
 phản quang, đội mũ bảo hộ, đi bộ ~1 m/s, tay chân đung đưa theo bước đi, dừng làm việc ở các điểm trên tuyến:
@@ -144,21 +150,33 @@ có trên `/factory/people` (`geometry_msgs/PoseArray`) và trong RViz. Tắt b�
 
 **Chu trình (MES mô phỏng, `process:` trong layout):**
 
-1. `KIT_DELIVERY` A1–A5 → B*_IN: thùng kit linh kiện (12 bộ) cho dây chuyền sản xuất (tối đa 2 thùng chờ trên bệ).
+1. `KIT_DELIVERY` A1–A5 → B*_IN: thùng kit linh kiện (16 bộ) cho dây chuyền sản xuất (tối đa 2 thùng chờ trên bệ).
 2. Mỗi dây chuyền B bắt đầu 1 SP sau mỗi `cycle_time` (22 s, nhịp); SP cần `loader_time` + chiều dài băng /
-   `belt_speed` + `drop_time` (≈ 113 s) để đi hết dây chuyền rồi được **xếp vào thùng** (12 SP/thùng) ở B*_OUT.
+   `belt_speed` + `drop_time` (≈ 113 s) để đi hết dây chuyền rồi được **xếp vào thùng** (16 SP/thùng) ở B*_OUT.
    Thùng đầy chờ trên bệ (tối đa 2); khi bệ đầy và thùng đang xếp cũng đầy thì cả dây chuyền dừng (`BLOCKED`).
-3. `BOX_TRANSFER` B*_OUT → C*_IN: chở thùng sang dây chuyền đóng gói (thùng đầy nhất đi trước, chọn dây C ít việc).
-4. Dây chuyền C **đóng gói từng sản phẩm** (`pack_time` 21 s/SP) và xếp vào thùng thành phẩm (12 SP).
-5. `FG_DELIVERY` C*_OUT → D1–D6: nhập kho thành phẩm.
+3. `FG_STORE` B*_OUT → DI1/DI2: **nhập kho thành phẩm** (thùng đầy nhất đi trước, trạm ít robot nhất). Robot từ
+   B_OUT (làn đi về Tây) quay đầu ở Đường Tây rồi chạy về Đông qua DI → DO → các C_IN: nhập kho xong có thể lấy
+   ngay thùng ở trạm xuất kho cách 6–18 m, không vòng.
+4. `FG_PICK` DO1/DO2 → C*_IN: **xuất kho** cho dây chuyền đóng gói thiếu hàng nhất. Kho (`warehouse:`) đếm theo
+   thùng: có sẵn hàng lúc khởi động (`initial_stock`) để dây đóng gói chạy ngay, kho đầy (`capacity`) thì dây SX
+   phải chờ, kho trống thì dây đóng gói chờ — kho là bộ đệm giữa sản xuất và đóng gói.
+5. Dây chuyền C **đóng gói từng sản phẩm** (`pack_time` 21 s/SP) và xếp vào thùng xuất hàng (16 SP).
+6. `SHIPMENT` C*_OUT → G1–G3: **xuất hàng** ra cổng ở tường Nam, băng lăn đưa thùng lên xe tải; xe đủ
+   `truck_capacity` (20 thùng) thì xuất bến và xe mới vào.
+
+Cổng xuất đặt ở tường Nam trước kho D (không phải dưới các dây đóng gói): robot từ C_OUT phải quay đầu ở Đường Tây
+nên đi ~94 m, nhưng sau đó chỉ cách kho linh kiện ~85 m; cổng ở phía Đông Trục giữa gần dây đóng gói hơn (~59 m)
+nhưng chuyến rỗng về kho linh kiện dài ~165–220 m.
 
 **Số dây chuyền chạy theo số robot** (`active_lines: auto`, `robots_per_line: 2.0`): MES chạy ceil(số robot online / 2)
-cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D). 5 robot → 3 cặp, 7 → 4, 12 → 6, 15 → 8. Dây bị tắt chạy
+cặp dây chuyền, ưu tiên các dây phía Tây (gần kho A/D và cổng xuất). 5 robot → 3 cặp, 7 → 4, 12 → 6, 15 → 8. Dây bị tắt chạy
 hết hàng đang có rồi nghỉ (không nhận kit / thùng mới). Thêm robot thì bật ngay; bớt robot thì tắt sau 20 s.
 
-Năng lực (mô phỏng headless 2–4 giờ, xem mục 10): 5 robot ≈ 427 SP/giờ, 7 robot ≈ 590, 12 robot ≈ 860,
-15 robot ≈ 1015 SP/giờ (8 dây chuyền ≈ 77 % tải, còn dư cho 16–18 robot). Bố trí cũ 4 + 4 dây chuyền bão hoà ở
-8 robot (655 SP/giờ).
+Năng lực (mô phỏng headless, 60 phút sau 10 phút khởi động; SP **đã xuất lên xe tải**): 5 robot ≈ 480 SP/giờ,
+7 robot ≈ 620, 9 robot ≈ 720, 12 robot ≈ 850, 15 robot ≈ 960 (0 va chạm). Chặng kho thêm 1 chuyến cho mỗi thùng (4 chuyến thay vì 3): với thùng
+12 SP năng suất giảm ~20 % (5 robot 360, 9 robot 550, 15 robot 790); **thùng 16 SP** giảm số chuyến AMR trên mỗi SP đi
+1/4 nên bù lại được. Đã thử: `robots_per_line` 1.5 / 2.0 / 2.5 / 3.0 (2.0 tốt nhất), bệ 3 thùng thay 2, trọng số ưu
+tiên task của bộ điều phối 0–120 s (không khác biệt đo được).
 
 Khi khởi động, các dây chuyền đã có sẵn bán thành phẩm (`initial_wip`) nên mọi dây chạy ngay, không phải chờ robot
 chở chuyến đầu.
@@ -343,7 +361,7 @@ ros2 launch amr_bringup fleet.launch.py num_robots:=12 driver:=simple use_sim_ti
 
 ```bash
 ros2 run amr_fleet_manager fleet_cli status              # bảng trạng thái trực tiếp trong terminal
-ros2 run amr_fleet_manager fleet_cli task A2 D1 --priority 3
+ros2 run amr_fleet_manager fleet_cli task A2 G1 --priority 3
 ros2 run amr_fleet_manager fleet_cli rank amr_07 1       # hạng cơ bản (phân xử khi hoà điểm task)
 ros2 run amr_fleet_manager fleet_cli pause | resume
 ros2 run amr_fleet_manager fleet_cli demo                # kịch bản đối đầu → né → bám lại route cũ
@@ -418,8 +436,9 @@ dõi tiến độ route khi Nav2 cắt góc, ghép pose AMCL + odometry, kịch 
 thấp vào yield bay, chờ, bám lại route cũ, cả hai về đích không va chạm), và mô phỏng 12–15 robot với tiêu chí 0 va
 chạm (kiểm tra va chạm hình chữ nhật xoay) và không robot nào kẹt quá 150 s.
 
-Kết quả mô phỏng headless (cấu hình mặc định, `active_lines: auto`, đo sau 20 phút khởi động, 2 giờ; 5 và 7 robot
-đo sau 90 phút, 4 giờ để các dây chuyền bị tắt xả hết hàng):
+Kết quả mô phỏng headless của **luồng cũ** (B_OUT → C_IN trực tiếp, thành phẩm về kho D, thùng 12 SP; `active_lines:
+auto`, đo sau 20 phút khởi động, 2 giờ; 5 và 7 robot đo sau 90 phút, 4 giờ). Luồng hiện tại qua kho thành phẩm và cổng
+xuất hàng: xem mục 2 (sạc, chờ dock và va chạm như bảng dưới):
 
 | Robot | Dây chuyền chạy | Thành phẩm nhập kho / giờ | Thời gian làm task | Sạc + đi sạc | Chờ dock | Robot đi sạc cùng lúc (tối đa) | Va chạm |
 |---|---|---|---|---|---|---|---|

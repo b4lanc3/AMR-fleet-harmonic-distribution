@@ -20,7 +20,8 @@ import numpy as np
 
 from ..core.layout import (BELT_TOP, CELL_ARM, CELL_BELT_V, CELL_LOADER,
                            CELL_SLOTS, CELL_STACK, PEDESTAL_TOP)
-from .generate_world import (ARM_PEDESTAL, CARTON, DECK_TOP, ITEM_LOOK, LOADER_SCALE, SAFE_RHO,
+from . import line_products as LP
+from .generate_world import (ARM_PEDESTAL, CARTON, DECK_TOP, LOADER_SCALE, SAFE_RHO,
                              STACK_TOP, SWING_MIN, arm_dims, arm_frames, loader_home)
 
 ABOVE = 0.30            # FactoryLines kAbove
@@ -141,10 +142,10 @@ def min_clearance(samples: int = 8) -> Tuple[float, str]:
     up = np.array((0.0, 0.0, ABOVE))
     deck = np.array((0.0, 0.0, DECK_TOP))
     stack = np.array((CELL_STACK[0], CELL_STACK[1], STACK_TOP + h))
-    belt = np.array((0.0, CELL_BELT_V, BELT_TOP))
+    belt = np.array((0.0, CELL_BELT_V, BELT_TOP + LP.JIG[2]))
     home = np.array(((0.0 + slots[0][0]) / 2, (0.0 + slots[0][1]) / 2, 1.25))
     lhome = np.array(loader_home(ld, slots[1]))
-    item = ITEM_LOOK['part'][0]
+    item = (0.12, 0.08, LP.H)          # product (bounding box) on a jig
     worst, where = math.inf, ''
     for k, slot in enumerate(slots):
         top = np.array(slot) + (0, 0, h)
@@ -185,14 +186,14 @@ def reach_error() -> float:
     arm = (CELL_ARM[0], CELL_ARM[1], ARM_PEDESTAL)
     ld = (CELL_LOADER[0], CELL_LOADER[1], ARM_PEDESTAL)
     h = CARTON[2]
-    item = ITEM_LOOK['part'][0]
+    item = (0.12, 0.08, LP.H)          # product (bounding box) on a jig
     worst = 0.0
     targets = [(arm, 1.0, (0.0, 0.0, DECK_TOP)), (arm, 1.0, (CELL_STACK[0], CELL_STACK[1], STACK_TOP + h))]
     for u, v in CELL_SLOTS:
         targets.append((arm, 1.0, (u, v, PEDESTAL_TOP + h + ABOVE)))
         for cu, cv in itertools.product((-0.2, 0.2), (-0.14, 0.14)):
             targets.append((ld, LOADER_SCALE, (u + cu, v + cv, PEDESTAL_TOP + 0.015 + item[2])))
-    targets.append((ld, LOADER_SCALE, (0.0, CELL_BELT_V, BELT_TOP + item[2])))
+    targets.append((ld, LOADER_SCALE, (0.0, CELL_BELT_V, BELT_TOP + LP.JIG[2] + item[2])))
     for base, k, p in targets:
         w = arm_frames(base, p, 0.0, k)['tool'][0]
         want = np.array(p) + (0, 0, arm_dims(k)['tool'])

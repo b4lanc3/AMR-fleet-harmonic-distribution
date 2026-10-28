@@ -128,9 +128,24 @@ trong unit test.
 * **Trạm** là lay-by cạnh làn: `làn → Q (ô chờ) → S (ô phục vụ) → làn`. Robot chờ trạm đứng ở Q, không chặn làn.
   Dock sạc và ô đỗ là ngõ cụt cạnh làn.
 
-**Một dây chuyền sản xuất (B1–B8)**: băng tải chạy suốt từ đầu vào tới đầu ra, trạm CNC, tủ điều khiển,
-cell robot hàn (có hàng rào an toàn), bàn lắp ráp, cổng QC, máy xếp thùng, đèn tháp báo trạng thái.
-**Một dây chuyền đóng gói (C1–C8)**: tháo thùng, máy quấn màng (flow wrapper), case packer, robot xếp pallet.
+**Sản phẩm: động cơ điện mini**, lắp từ linh kiện rồi đóng hộp (`tools/line_products.py`, mỗi dạng là một mesh
+một vật liệu trong `meshes/item_*.obj`):
+
+| Dây | Trạm 1 | Trạm 2 | Trạm 3 | Trạm 4 |
+| --- | --- | --- | --- | --- |
+| Sản xuất (B) | đế + chân → ép **stator** có cánh tản nhiệt | lắp **trục**, then, nắp trước, nắp ổ bi | nắp sau, **chụp quạt**, **hộp đấu dây**, đầu cáp | **cổng QC**: nhãn máy + tem QC → động cơ hoàn chỉnh |
+| Đóng gói (C) | bọc **xốp** hai đầu | đặt vào **hộp** có đai màu | gập nắp, dán **băng keo**, logo | in + dán **nhãn mã vạch** |
+
+**Băng tải vòng khép kín** (over-under, cả dây SX và dây đóng gói): sản phẩm nằm trên **khay gá** (jig) có chốt định
+vị, khay chạy trên 2 dải băng của tầng trên giữa hai ray dẫn hướng, qua các trạm có vỏ che (đèn tháp, HMI, chặn khí
+nén). Ở cuối dây, tay nạp liệu nhấc SP khỏi khay; **thang nâng đầu ra** (bàn nâng là một đoạn băng ngắn) hạ khay rỗng
+xuống **băng hồi** ở tầng dưới (0,44 m); khay chạy về đầu dây (0,5 m/s) và **xếp hàng cách nhau 0,24 m** (băng tích
+khay: khay về sau dừng sau khay cuối, cả hàng nhích lên khi thang nâng hạ xuống). **Thang nâng đầu vào** đưa khay
+đầu hàng lên ngang mặt băng đúng lúc tay nạp liệu đặt SP mới. Khung thang nâng thấp hơn mặt băng, phía trên điểm
+giao nhận không có cột/dầm nào nên tay máy không va. Số khay mỗi dây đủ cho mọi SP trên băng + khay trên đường về.
+
+Dây sản xuất còn có trạm CNC, tủ điều khiển, cell robot hàn (có hàng rào an toàn), bàn lắp ráp, máy xếp thùng; dây
+đóng gói có máy quấn màng (flow wrapper), case packer, robot xếp pallet.
 
 **Work cell ở hai đầu mỗi dây chuyền** (system `FactoryLines`, mục `CELL_*` trong `core/layout.py`): bệ 3 ô xếp
 thành **một hàng song song với làn**, **tay máy trạm** (cam) đứng phía AMR, **tay máy nạp liệu** (xanh, nhỏ hơn 15 %)
@@ -142,8 +157,8 @@ phỏng lại mọi động tác của hai tay: khe hở nhỏ nhất ≈ 5 cm (
 * Đầu vào: tay máy trạm gắp thùng (kit linh kiện / thùng SP chưa đóng gói) từ AMR đặt lên ô trống của bệ. Thùng cũ
   nhất được mở, tay nạp liệu gắp **từng sản phẩm** (mỗi nhịp 22 s / 21 s một SP) đặt lên băng tải. Thùng rỗng được
   tay máy trạm bỏ vào xe thùng gấp.
-* Trên băng: SP chạy từ đầu tới cuối dây chuyền (0.2 m/s) và đổi dạng ở giữa: chi tiết thô → sản phẩm (dây SX),
-  sản phẩm → sản phẩm bọc màng (dây đóng gói).
+* Trên băng: SP nằm trên khay gá chạy từ đầu tới cuối dây chuyền (0.2 m/s) và đổi dạng sau mỗi trạm (bảng trên):
+  bộ linh kiện → động cơ hoàn chỉnh (dây SX), động cơ → hộp có nhãn mã vạch (dây đóng gói).
 * Đầu ra: tay nạp liệu xếp từng SP vào thùng mở trên bệ; đủ 16 SP thùng được đóng lại và chờ trên ô của nó; tay máy
   trạm gắp **chính thùng đó** lên AMR, rồi lấy thùng mới từ xe thùng gấp đặt vào ô trống.
 

@@ -37,6 +37,7 @@ from xml.sax.saxutils import escape
 import numpy as np
 
 from ..core.docking import CONTACT_DEPTH
+from . import line_products as LP
 from ..core.layout import (ARM_CELLS, BELT_DOCK, BELT_MARGIN, BELT_TOP, CELL_ARM, CELL_LOADER, CELL_SLOTS,
                            CELL_STACK, GATE_ARM, GATE_BELT, LINE_CELLS, PEDESTAL_TOP,
                            build_graph, cell_point,
@@ -167,9 +168,9 @@ class MeshBaker:
             faces.append(((q[0], k), (q[2], k), (q[3], k)))
         self._add(mat, verts, normals, faces)
 
-    def cyl(self, cx, cy, cz, r, h, mat, roll=0.0, pitch=0.0) -> None:
+    def cyl(self, cx, cy, cz, r, h, mat, roll=0.0, pitch=0.0, yaw=0.0) -> None:
         n = 10 if r < 0.08 else (16 if r < 0.4 else 24)
-        R = _rpy_matrix(roll, pitch, 0.0)
+        R = _rpy_matrix(roll, pitch, yaw)
         ang = np.arange(n) * 2.0 * math.pi / n
         ring = np.stack([r * np.cos(ang), r * np.sin(ang), np.zeros(n)], axis=1)
         verts = np.concatenate([ring + (0, 0, -h / 2), ring + (0, 0, h / 2),
@@ -258,12 +259,12 @@ class Model:
         if self.slices is not None and in_map and _alpha(mat) > 0.3:
             self.slices.add_box(cx, cy, cz, sx, sy, sz, yaw, roll, pitch)
 
-    def cyl(self, cx, cy, cz, r, h, mat, collide=False, roll=0.0, pitch=0.0, in_map=True):
+    def cyl(self, cx, cy, cz, r, h, mat, collide=False, roll=0.0, pitch=0.0, in_map=True, yaw=0.0):
         self.k += 1
-        pose = f'<pose>{cx:.3f} {cy:.3f} {cz:.3f} {roll:.4f} {pitch:.4f} 0</pose>'
+        pose = f'<pose>{cx:.3f} {cy:.3f} {cz:.3f} {roll:.4f} {pitch:.4f} {yaw:.4f}</pose>'
         geo = f'<geometry><cylinder><radius>{r:.3f}</radius><length>{h:.3f}</length></cylinder></geometry>'
         if self.baker is not None and self.baker.accepts(mat):
-            self.baker.cyl(cx, cy, cz, r, h, mat, roll, pitch)
+            self.baker.cyl(cx, cy, cz, r, h, mat, roll, pitch, yaw)
         else:
             self.visuals.append(f'<visual name="v{self.k}">{pose}{geo}{_mat(mat)}'
                                 f'<cast_shadows>false</cast_shadows></visual>')
@@ -272,7 +273,7 @@ class Model:
         if self.slices is not None and in_map and not roll and not pitch:
             self.slices.add_cyl(cx, cy, cz, r, h)
         elif self.slices is not None and in_map:
-            self.slices.add_box(cx, cy, cz, 2 * r, h, 2 * r, 0.0, roll, pitch)
+            self.slices.add_box(cx, cy, cz, 2 * r, h, 2 * r, yaw, roll, pitch)
 
     def collision_box(self, cx, cy, cz, sx, sy, sz, yaw=0.0):
         self.k += 1
@@ -299,6 +300,8 @@ class Local:
 
     def cyl(self, dx, dy, z, r, h, mat, **kw):
         ox, oy = rot(dx, dy, self.yaw)
+        if kw.get('roll') or kw.get('pitch'):      # tilted: turn with the local frame
+            kw.setdefault('yaw', self.yaw)
         self.m.cyl(self.x0 + ox, self.y0 + oy, z, r, h, mat, **kw)
 
 
@@ -629,18 +632,79 @@ def add_charger(m: Model, o) -> None:
 
 
 # ============================================================ production lines
-def add_conveyor(m: Model, x, y0, y1, h=0.9, width=1.0) -> None:
+def add_conveyor(m: Model, x, y0, y1, h=0.9, width=0.36) -> None:
+    """Closed-loop (over-under) twin-strand pallet conveyor: the jigs carry the
+    products on two belt strands of the upper level, between guide rails,
+    from the input end to the output end, drop in the end lift to the return
+    strands underneath and ride back to the lift at the input end.  The lift
+    carriages (a short belt section each, posed by FactoryLines) move between
+    the two levels inside a frame that stays below the belt: nothing above it
+    where the loader arms reach down to the hand-off point."""
     L = y1 - y0
     cy = (y0 + y1) / 2
-    m.box(x, cy, h - 0.04, width, L, 0.06, 'belt')
-    for s in (-1, 1):
-        m.box(x + s * (width / 2 - 0.03), cy, h + 0.03, 0.05, L, 0.1, 'galv')
-    for yy in np.arange(y0 + 0.2, y1, 0.5):
-        m.box(x, float(yy), h - 0.075, width - 0.1, 0.06, 0.03, 'roller', in_map=False)
-    for yy in np.arange(y0 + 0.1, y1, 1.6):
-        for s in (-1, 1):
-            m.box(x + s * (width / 2 - 0.06), float(yy), (h - 0.1) / 2, 0.06, 0.06, h - 0.1, 'galv')
-        m.box(x, float(yy), 0.10, width - 0.1, 0.05, 0.05, 'galv')
+    lo = BELT_LOW
+    gap = BELT_MARGIN + LP.LIFT / 2 + 0.02          # the lift carriage takes the belt end
+    ya, yb = y0 + gap, y1 - gap
+    cs, Ls = (ya + yb) / 2, yb - ya
+    for top in (h, lo):
+        for sx in (-0.07, 0.07):                                              # belt strands
+            m.box(x + sx, cs, top - 0.01, 0.05, Ls, 0.02, 'belt')
+        for ye in (ya, yb):                                                   # end rollers
+            m.cyl(x, ye, top - 0.012, 0.016, 0.2, 'steel', in_map=False, roll=math.pi / 2,
+                  yaw=math.pi / 2)
+        for sx in (-1, 1):                                                    # aluminium profiles
+            m.box(x + sx * (width / 2 - 0.02), cy, top - 0.05, 0.04, L, 0.09, 'galv')
+            m.box(x + sx * (width / 2 - 0.02), cy, top - 0.05, 0.042, L, 0.012, 'steel', in_map=False)
+        m.box(x, cs, top - 0.08, width - 0.06, Ls, 0.01, 'steel', in_map=False)    # drip tray
+        for sx in (-1, 1):                                                    # jig guide rails
+            m.box(x + sx * 0.085, cs, top + 0.035, 0.012, Ls - 0.02, 0.02, 'steel_light', in_map=False)
+        for yy in np.arange(ya + 0.2, yb - 0.1, 0.6):                         # rail brackets
+            for sx in (-1, 1):
+                m.box(x + sx * 0.12, float(yy), top + 0.005, 0.07, 0.02, 0.06, 'steel', in_map=False)
+    # legs: a pair on each side of both lifts (lift guide posts), more in between
+    lifts = [(y0 + 0.04, y0 + gap + 0.04), (y1 - gap - 0.04, y1 - 0.04)]
+    inner = np.linspace(lifts[0][1], lifts[1][0], max(2, int(math.ceil(Ls / 1.2)) + 1))[1:-1]
+    for yy in [*lifts[0], *(float(v) for v in inner), *lifts[1]]:
+        for sx in (-1, 1):
+            m.box(x + sx * (width / 2 - 0.02), yy, (h - 0.1) / 2, 0.045, 0.045, h - 0.1, 'galv')
+            m.box(x + sx * (width / 2 - 0.02), yy, 0.015, 0.09, 0.09, 0.03, 'machine_dark', in_map=False)
+        m.box(x, yy, 0.12, width - 0.04, 0.04, 0.04, 'galv')
+    for yy in np.arange(ya + 0.5, yb - 0.3, 2.1):                              # sensors on the profile
+        m.box(x + width / 2 + 0.01, float(yy), h - 0.02, 0.03, 0.04, 0.03, 'black', in_map=False)
+        m.box(x + width / 2 + 0.03, float(yy), h - 0.02, 0.01, 0.01, 0.01, 'led_green', in_map=False)
+    m.box(x - width / 2 - 0.05, cy, h - 0.25, 0.08, L - 0.4, 0.06, 'yellow', in_map=False)  # cable tray
+    # end lifts: guide strips on the posts, chain guard and drive under the belt
+    for (pa, pb) in lifts:
+        yc = (pa + pb) / 2
+        for sx in (-1, 1):
+            for yp, d in ((pa, 1), (pb, -1)):
+                m.box(x + sx * (width / 2 - 0.035), yp + d * 0.03, (lo - 0.12 + h) / 2, 0.012, 0.015,
+                      h - lo + 0.12, 'steel_light', in_map=False)
+        m.box(x + width / 2 + 0.01, yc, (0.3 + h - 0.06) / 2, 0.02, 0.06, h - 0.36, 'yellow', in_map=False)
+        m.box(x + width / 2 + 0.09, yc, 0.22, 0.14, 0.2, 0.16, 'machine_blue', in_map=False)
+        m.cyl(x + width / 2 + 0.09, yc, 0.33, 0.05, 0.06, 'steel', in_map=False)
+        for yp in (pa, pb):                                                   # light curtain
+            m.box(x - width / 2 - 0.005, yp, h - 0.3, 0.02, 0.02, 0.35, 'black', in_map=False)
+    m.box(x + width / 2 + 0.12, ya + 0.35, 0.62, 0.16, 0.26, 0.18, 'machine_blue', in_map=False)  # drives
+    m.cyl(x + width / 2 + 0.12, ya + 0.35, 0.74, 0.06, 0.07, 'steel', in_map=False)
+    m.box(x + width / 2 + 0.12, yb - 0.35, lo - 0.06, 0.16, 0.26, 0.18, 'machine_blue', in_map=False)
+
+
+def add_station_tunnel(m: Model, x, y, label: str, kind: str, h=0.9, width=0.5) -> None:
+    """Housing over the belt of an assembly / packing station: the product
+    gets its next part inside (pneumatic stop in front, light tower, HMI)."""
+    L = 0.9
+    for sx in (-1, 1):
+        m.box(x + sx * (width / 2 + 0.06), y, h + 0.35, 0.06, L, 0.7, 'machine', collide=True)
+        m.box(x + sx * (width / 2 + 0.09), y, h + 0.42, 0.01, L * 0.6, 0.3, 'glass', in_map=False)
+    m.box(x, y, h + 0.73, width + 0.18, L, 0.08, 'machine_blue' if kind == 'production' else 'packer')
+    m.box(x, y, h + 0.62, 0.14, 0.18, 0.14, 'machine_dark', in_map=False)     # tool head
+    m.cyl(x, y, h + 0.5, 0.025, 0.12, 'steel', in_map=False)
+    sgn = 1.0
+    m.box(x - width / 2 + 0.08, y + sgn * (L / 2 + 0.12), h + 0.06, 0.05, 0.05, 0.08, 'yellow',
+          in_map=False)                                                          # stopper
+    add_light_tower(m, x + width / 2 + 0.09, y - L / 2 + 0.08, h + 0.77)
+    m.box(x + width / 2 + 0.2, y, h + 0.3, 0.04, 0.3, 0.22, 'screen_on', in_map=False)     # HMI
 
 
 def add_light_tower(m: Model, x, y, z) -> None:
@@ -836,9 +900,25 @@ def add_fence(m: Model, x0, y0, x1, y1, h=1.8, gap_side: Optional[str] = None) -
             m.box(float(px), float(py), h / 2, 0.05, 0.05, h, 'yellow')
 
 
+def add_tunnels(m: Model, ln: dict) -> None:
+    """Station housings over the belt where the product changes its look
+    (the QC gate and the box former have their own housing)."""
+    x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
+    s = 1.0 if yi > yo else -1.0
+    a, b = yi - s * BELT_MARGIN, yo + s * BELT_MARGIN
+    kind = ln.get('kind', 'production')
+    at = stage_positions(ln)
+    skip = 4 if kind == 'production' else 2
+    for k in range(1, len(at)):
+        if k != skip:
+            add_station_tunnel(m, x, a + (b - a) * at[k], STATION_NAMES[kind][k], kind)
+
+
 def add_production_line(m: Model, ln: dict, objs: Dict[str, dict]) -> None:
     x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
     add_conveyor(m, x, yo, yi)
+    add_tunnels(m, ln)
+
     o = objs['cnc']
     x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
     m.box(cx, cy, 1.15, sx, sy, 2.3, 'machine', collide=True)
@@ -894,6 +974,7 @@ def add_production_line(m: Model, ln: dict, objs: Dict[str, dict]) -> None:
 def add_packaging_line(m: Model, ln: dict, objs: Dict[str, dict]) -> None:
     x, yi, yo = float(ln['x']), float(ln['y_in']), float(ln['y_out'])
     add_conveyor(m, x, yo, yi)
+    add_tunnels(m, ln)
     o = objs['unboxer']
     x0, y0, x1, y1, cx, cy, sx, sy = _rect(o)
     m.box(cx, cy, 0.85, sx, sy, 0.05, 'galv', collide=True)
@@ -1095,12 +1176,6 @@ def _vis(name, size, mat, pose=(0.0, 0.0, 0.0)) -> str:
 # carton of finished goods
 CARTON_STYLE = {'kit': ('carton', 'bin_blue'), 'semi': ('carton', 'dark'),
                 'fg': ('carton_dark', 'green')}
-# product looks along the lines: (size, material).  Lite: every moving part is
-# ONE draw call (a single box or a single-material mesh) - the cameras and
-# lidars of the fleet render them all.  16 per carton: 4 x 4 cells of 0.13 x 0.09 m
-ITEM_LOOK = {'part': ((0.10, 0.078, 0.06), 'steel_light'),
-             'product': ((0.10, 0.078, 0.08), 'machine_orange'),
-             'wrapped': ((0.11, 0.084, 0.09), 'white')}
 TRAY_WALL = 0.015
 
 
@@ -1130,10 +1205,15 @@ def _tray_geometry(style: str = 'semi', mesh=None) -> str:
     return ''.join(_vis(f'w{k}', size, body, pos) for k, (pos, size) in enumerate(parts))
 
 
-def _item_geometry(look: str) -> str:
-    """One product, origin in its centre."""
-    size, body = ITEM_LOOK[look]
-    return _vis('body', size, body)
+def _item_geometry(look: str, mesh=None) -> str:
+    """One product look (line_products), origin in its centre: one textured
+    OBJ with a mesh (one draw call), else a plain box."""
+    if mesh:
+        uri = mesh[1].rsplit('/', 1)[0]
+        return (f'<visual name="v"><geometry><mesh><uri>{escape(uri)}/item_{look}.obj</uri></mesh>'
+                f'</geometry><cast_shadows>false</cast_shadows></visual>')
+    size = {'jig': LP.JIG, 'lift': (LP.LIFT, 0.26, 0.02)}.get(look, (0.12, 0.08, LP.H))
+    return _vis('body', size, 'steel_light' if look in ('m0', 'jig') else 'machine_blue')
 
 
 def add_robot_arm_pedestal(m: Model, base, k: float = 1.0) -> None:
@@ -1234,6 +1314,30 @@ def _hidden_pose():
     return (*HIDDEN, 0, 0, 0)
 
 
+BELT_LOW = 0.44                       # top of the return belt of the loop conveyor
+RETURN_SPEED = 0.5                    # m/s empty jigs on the return belt
+LIFT_TIME = 1.5                       # s a jig needs in an end lift
+
+
+def stage_positions(ln: dict) -> List[float]:
+    """Where along the belt (0 = input end, 1 = output end) the product
+    changes into its next look: in the station tunnels, the QC gate of a
+    production line and the box former (wrapper housing) of a packaging line."""
+    yi, yo = float(ln['y_in']), float(ln['y_out'])
+    s = 1.0 if yi > yo else -1.0
+    a, b = yi - s * BELT_MARGIN, yo + s * BELT_MARGIN
+    frac = lambda y: (a - y) / (a - b)                                         # noqa: E731
+    if ln.get('kind', 'production') == 'production':
+        return [0.0, 0.20, 0.40, 0.58, frac(yo + s * 5.0)]                     # QC gate
+    return [0.0, 0.17, frac((yi + yo) / 2 + s * 2.5), 0.56, 0.76]              # box former
+
+
+STATION_NAMES = {
+    'production': ['', 'Ép thân stator', 'Lắp trục + nắp trước', 'Nắp sau + hộp đấu dây', 'Kiểm tra QC + nhãn'],
+    'packaging': ['', 'Bọc xốp', 'Dựng hộp, đặt SP', 'Gập nắp, dán băng keo', 'In + dán nhãn'],
+}
+
+
 def line_cells(layout: dict, graph) -> List[dict]:
     """Everything the FactoryLines system needs per line: belt hand-off
     points, timing, product looks and both work cells."""
@@ -1258,16 +1362,29 @@ def line_cells(layout: dict, graph) -> List[dict]:
         s = 1.0 if yi > yo else -1.0
         t_load, t_belt, t_drop = line_lead_time(process, ln)
         lead = t_load + t_belt + t_drop
-        n_way = int(math.ceil(lead / takt.get(lid, 20.0))) + 2
+        T = takt.get(lid, 20.0)
         cap = box.get(lid, 12)
+        kind = 'production' if prod else 'packaging'
+        at = stage_positions(ln)
+        names = [n for n, _ in LP.STAGES[kind]]
+        stages = []
+        for k, (name, a) in enumerate(zip(names, at)):
+            b = at[k + 1] if k + 1 < len(at) else 1.0
+            n = int(math.ceil((b - a) * t_belt / T)) + 2
+            if k == 0:
+                n += cap + 1                 # open input carton, loader
+            if k == len(at) - 1:
+                n += cap + 1                 # output carton, loader
+            stages.append((name, a, n))
+        belt_len = abs(yi - yo) - 2 * BELT_MARGIN
+        t_ret = belt_len / RETURN_SPEED
+        jigs = int(math.ceil((lead + t_ret + 2 * LIFT_TIME) / T)) + 3
         out.append({
-            'id': lid, 'kind': 'production' if prod else 'packaging',
+            'id': lid, 'kind': kind,
             'belt': ((x, yi - s * BELT_MARGIN), (x, yo + s * BELT_MARGIN)),
             'timing': (t_load, t_belt, t_drop), 'cap': cap,
-            'transform': 0.5 if prod else 0.4,
-            'looks': ('part', 'product') if prod else ('product', 'wrapped'),
+            'stages': stages, 'jigs': jigs, 'return': t_ret,
             'styles': (('kit', 'semi') if prod else ('semi', 'fg')),
-            'pool': (cap + n_way, n_way + cap),
             'in': cells[ends[lid][0]], 'out': cells[ends[lid][1]]})
     return out
 
@@ -1324,6 +1441,9 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
     lines = line_cells(layout, graph)
     if not lines:
         return ''
+    if mesh:
+        import os
+        LP.bake_all(os.path.dirname(os.path.abspath(mesh[0])))
     station_geo = _arm_geometry(mesh, 'arm', 'robot_orange', 'vacuum')
     loader_geo = _arm_geometry(mesh, 'arm_loader', 'machine_blue', 'pincer', LOADER_SCALE)
     hidden = _hidden_pose()
@@ -1357,18 +1477,22 @@ def build_line_cells(layout, graph, out: List[str], topic: str, mesh=None) -> st
                         f'<yaw>{yaw:.4f}</yaw><arm>{v3(arm)}</arm><loader>{v3(loader)}</loader>'
                         + ''.join(f'<slot>{v3(p)}</slot>' for p in slots)
                         + f'<stack>{v3(stack)}</stack></end>')
-        heights = []
-        for pool, (n, look) in zip('ab', zip(L['pool'], L['looks'])):
-            heights.append(ITEM_LOOK[look][0][2])
-            for k in range(n):
-                out.append(_link_model(f'fl_{L["id"]}_{pool}{k}', hidden, _item_geometry(look)))
+        stages = []
+        for k, (name, at, n) in enumerate(L['stages']):
+            for i in range(n):
+                out.append(_link_model(f'fl_{L["id"]}_s{k}_{i}', hidden, _item_geometry(name, mesh)))
+            stages.append(f'<stage at="{at:.4f}" h="{LP.H:.3f}">{n}</stage>')
+        for i in range(L['jigs']):
+            out.append(_link_model(f'fl_{L["id"]}_jig{i}', hidden, _item_geometry('jig', mesh)))
+        for i in range(2):                     # lift carriages: input end, output end
+            out.append(_link_model(f'fl_{L["id"]}_lift{i}', hidden, _item_geometry('lift', mesh)))
         (x0, y0), (x1, y1) = L['belt']
         t = L['timing']
-        cfg.append(f'<line id="{L["id"]}" cap="{L["cap"]}" transform="{L["transform"]}">'
+        cfg.append(f'<line id="{L["id"]}" cap="{L["cap"]}">'
                    f'<belt>{x0:.3f} {y0:.3f} {BELT_TOP:.3f} {x1:.3f} {y1:.3f} {BELT_TOP:.3f}</belt>'
-                   f'<timing>{t[0]:.3f} {t[1]:.3f} {t[2]:.3f}</timing>'
-                   f'<pool_a>{L["pool"][0]} {heights[0]:.3f}</pool_a>'
-                   f'<pool_b>{L["pool"][1]} {heights[1]:.3f}</pool_b>{"".join(ends)}</line>')
+                   f'<timing>{t[0]:.3f} {t[1]:.3f} {t[2]:.3f}</timing>{"".join(stages)}'
+                   f'<jigs n="{L["jigs"]}" h="{LP.JIG[2]:.3f}" low="{BELT_LOW:.3f}" '
+                   f'return="{L["return"]:.2f}" lift="{LIFT_TIME:.2f}"/>{"".join(ends)}</line>')
     d = ARM_DIMS
     return (f'  <plugin filename="amr_factory_lines" name="amr_gazebo::FactoryLines">'
             f'<topic>{topic}</topic>'

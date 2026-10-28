@@ -350,17 +350,9 @@ Ns 20
 d 1.0
 illum 2
 
-newmtl roller
-Ka 0.550 0.570 0.600
-Kd 0.550 0.570 0.600
-Ks 0.150 0.150 0.150
-Ns 20
-d 1.0
-illum 2
-
-newmtl machine
-Ka 0.900 0.910 0.920
-Kd 0.900 0.910 0.920
+newmtl machine_dark
+Ka 0.300 0.320 0.350
+Kd 0.300 0.320 0.350
 Ks 0.150 0.150 0.150
 Ns 20
 d 1.0
@@ -374,9 +366,9 @@ Ns 20
 d 1.0
 illum 2
 
-newmtl machine_dark
-Ka 0.300 0.320 0.350
-Kd 0.300 0.320 0.350
+newmtl machine
+Ka 0.900 0.910 0.920
+Kd 0.900 0.910 0.920
 Ks 0.150 0.150 0.150
 Ns 20
 d 1.0
@@ -449,6 +441,14 @@ illum 2
 newmtl packer
 Ka 0.550 0.400 0.800
 Kd 0.550 0.400 0.800
+Ks 0.150 0.150 0.150
+Ns 20
+d 1.0
+illum 2
+
+newmtl roller
+Ka 0.550 0.570 0.600
+Kd 0.550 0.570 0.600
 Ks 0.150 0.150 0.150
 Ns 20
 d 1.0

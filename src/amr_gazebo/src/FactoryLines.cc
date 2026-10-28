@@ -83,6 +83,7 @@ using gz::sim::kNullEntity;
 constexpr double kHidden = -20.0;        // z of hidden models
 constexpr double kAbove = 0.30;          // approach height above a pick / place
 constexpr double kSpeed = 0.9;           // station arm tool tip speed [m/s]
+constexpr double kLiftClear = 0.6;       // s for a jig to roll off the output lift
 constexpr double kWaitTimeout = 14.0;    // s waiting for the AMR's lift
 constexpr double kAtSlot = 0.35;         // AMR on the service slot [m]
 constexpr double kStill = 0.02;          // m per check: AMR stands still
@@ -186,16 +187,30 @@ struct End
   Pose3d lastHBox, lastHTray;
 };
 
+// one look of the product: from belt fraction `at` until the next stage
+struct Stage
+{
+  double at{0.0};
+  double h{0.1};
+  std::vector<Entity> pool;
+  std::vector<Pose3d> last;
+  std::size_t used{0};
+};
+
 struct Line
 {
   std::string id;
   int cap{12};
-  double transform{0.5};
   Vector3d b0, b1;                            // belt hand-off points (input, output)
   double tLoad{5.0}, tBelt{90.0}, tDrop{5.0};
-  double hA{0.06}, hB{0.08};
-  std::vector<Entity> poolA, poolB;
-  std::vector<Pose3d> lastA, lastB;
+  std::vector<Stage> stages;                  // assembly / packing stages of the product
+  // closed-loop conveyor: jigs carry the products, return underneath
+  std::vector<Entity> jigs;
+  std::vector<Pose3d> lastJig;
+  double jigH{0.03}, low{0.44}, tReturn{40.0}, tLift{1.5};
+  std::vector<double> returning;              // s since every free jig left the output end
+  std::array<Entity, 2> lifts{kNullEntity, kNullEntity};   // lift carriages: input, output end
+  std::array<Pose3d, 2> lastLift;
   End in, out;
   // MES state
   bool have{false};
@@ -294,8 +309,6 @@ public:
       line.id = l->GetAttribute("id")->GetAsString();
       if (l->GetAttribute("cap"))
         line.cap = std::stoi(l->GetAttribute("cap")->GetAsString());
-      if (l->GetAttribute("transform"))
-        line.transform = std::stod(l->GetAttribute("transform")->GetAsString());
       const auto belt = Numbers(l->Get<std::string>("belt"));
       if (belt.size() == 6)
       {
@@ -309,14 +322,28 @@ public:
         line.tBelt = std::max(1.0, timing[1]);
         line.tDrop = timing[2];
       }
-      const auto pa = Numbers(l->Get<std::string>("pool_a"));
-      const auto pb = Numbers(l->Get<std::string>("pool_b"));
-      line.poolA.assign(pa.empty() ? 0 : static_cast<std::size_t>(pa[0]), kNullEntity);
-      line.poolB.assign(pb.empty() ? 0 : static_cast<std::size_t>(pb[0]), kNullEntity);
-      line.hA = pa.size() > 1 ? pa[1] : line.hA;
-      line.hB = pb.size() > 1 ? pb[1] : line.hB;
-      line.lastA.assign(line.poolA.size(), Pose3d::Zero);
-      line.lastB.assign(line.poolB.size(), Pose3d::Zero);
+      for (auto st = l->FindElement("stage"); st; st = st->GetNextElement("stage"))
+      {
+        Stage stage;
+        stage.at = std::stod(st->GetAttribute("at")->GetAsString());
+        stage.h = std::stod(st->GetAttribute("h")->GetAsString());
+        stage.pool.assign(static_cast<std::size_t>(std::max(0, st->Get<int>())), kNullEntity);
+        stage.last.assign(stage.pool.size(), Pose3d::Zero);
+        line.stages.push_back(std::move(stage));
+      }
+      if (line.stages.empty())
+        line.stages.emplace_back();
+      if (l->HasElement("jigs"))
+      {
+        auto j = l->GetElement("jigs");
+        line.jigs.assign(static_cast<std::size_t>(std::stoi(j->GetAttribute("n")->GetAsString())),
+                         kNullEntity);
+        line.jigH = std::stod(j->GetAttribute("h")->GetAsString());
+        line.low = std::stod(j->GetAttribute("low")->GetAsString());
+        line.tReturn = std::max(1.0, std::stod(j->GetAttribute("return")->GetAsString()));
+        line.tLift = std::stod(j->GetAttribute("lift")->GetAsString());
+        line.lastJig.assign(line.jigs.size(), Pose3d::Zero);
+      }
       for (auto e = l->FindElement("end"); e; e = e->GetNextElement("end"))
       {
         const bool in = e->GetAttribute("side")->GetAsString() == "in";
@@ -411,6 +438,8 @@ public:
       if (line.run)
         for (auto &a : line.ages)
           a = std::min(a + dt * (1.0 + line.rate), line.tLoad + line.tBelt + line.tDrop - 1e-3);
+      for (auto &r : line.returning)          // the return belt never stops
+        r += dt;
     }
     if (now - this->lastScan >= 0.1)
     {
@@ -552,7 +581,10 @@ private:
     for (double a : _mes)
     {
       while (i < _line.ages.size() && _line.ages[i] > a + kMatch)
-        ++i;                                // packed by the MES: gone
+      {
+        ++i;                                // packed by the MES: gone, its jig returns
+        _line.returning.push_back(0.0);
+      }
       if (i < _line.ages.size() && std::abs(_line.ages[i] - a) <= kMatch)
       {
         err += a - _line.ages[i];
@@ -562,6 +594,8 @@ private:
       else
         out.push_back(a);                   // started since the last message
     }
+    for (; i < _line.ages.size(); ++i)      // the oldest ones packed since the last message
+      _line.returning.push_back(0.0);
     _line.ages.swap(out);
     err = matched ? err / matched : 0.0;
     _line.rate = std::abs(err) < kDrift ? 0.0 : std::clamp(err / kCatchUp, -kMaxRate, kMaxRate);
@@ -1266,45 +1300,74 @@ private:
       this->Place(_ecm, e->hbox, e->holdBox ? held : this->Hidden(), e->lastHBox);
       this->Place(_ecm, e->htray, e->holdTray ? held : this->Hidden(), e->lastHTray);
     }
-    // products: input carton contents, on the way, output carton contents
-    std::size_t na = 0, nb = 0;
-    auto put = [&](bool _a, const Vector3d &_p, double _yaw) {
-      auto &pool = _a ? _line.poolA : _line.poolB;
-      auto &last = _a ? _line.lastA : _line.lastB;
-      std::size_t &n = _a ? na : nb;
-      if (n < pool.size())
+    // products: input carton contents, on the way, output carton contents.
+    // Every stage has its own look (pool of models); on the belt a product
+    // rides a jig and takes the look of the last station it has passed.
+    for (auto &st : _line.stages)
+      st.used = 0;
+    const std::size_t lastStage = _line.stages.size() - 1;
+    auto put = [&](std::size_t _k, const Vector3d &_p, double _yaw) {
+      Stage &st = _line.stages[std::min(_k, lastStage)];
+      if (st.used < st.pool.size())
       {
-        this->Place(_ecm, pool[n], Pose3d(_p, Quaterniond(0, 0, _yaw)), last[n]);
-        ++n;
+        this->Place(_ecm, st.pool[st.used], Pose3d(_p, Quaterniond(0, 0, _yaw)), st.last[st.used]);
+        ++st.used;
       }
     };
+    auto stageAt = [&](double _s) {
+      std::size_t k = 0;
+      while (k < lastStage && _s >= _line.stages[k + 1].at)
+        ++k;
+      return k;
+    };
+    const double h0 = _line.stages.front().h, hN = _line.stages.back().h;
+    const Vector3d onJig(0, 0, _line.jigH);
     End &in = _line.in, &out = _line.out;
     int openSlot = this->Find(in, kOpen);
     if (openSlot < 0)
       openSlot = this->Find(in, kSpent);
     const Vector3d inBase = openSlot >= 0 ? in.slots[openSlot] : in.slots[0];
     for (int k = 0; k < std::min(_line.open, _line.cap); ++k)
-      put(true, this->Cell(inBase, in.yaw, k, _line.hA, _line.cap), in.yaw);
+      put(0, this->Cell(inBase, in.yaw, k, h0, _line.cap), in.yaw);
     int fillSlot = this->Find(out, kOpen);
     if (fillSlot < 0)
       fillSlot = out.target >= 0 && out.job == Job::Tray ? out.target : 0;
     const Vector3d outBase = out.slots[fillSlot];
     for (int k = 0; k < std::min(_line.fill, _line.cap); ++k)
-      put(false, this->Cell(outBase, out.yaw, k, _line.hB, _line.cap), out.yaw);
+      put(lastStage, this->Cell(outBase, out.yaw, k, hN, _line.cap), out.yaw);
+
+    // jigs: one under every product, the free ones on the return belt
+    std::size_t nj = 0;
+    const Vector3d lowOff(0, 0, _line.low - _line.b0.Z());
+    auto jig = [&](double _s, double _up) {    // _up: 1 upper belt, 0 return belt
+      if (nj >= _line.jigs.size())
+        return;
+      const Vector3d p = _line.b0 + belt * std::clamp(_s, 0.0, 1.0) + lowOff * (1.0 - _up) +
+                         Vector3d(0, 0, _line.jigH / 2.0);
+      this->Place(_ecm, _line.jigs[nj], Pose3d(p, Quaterniond(0, 0, beltYaw)), _line.lastJig[nj]);
+      ++nj;
+    };
 
     bool inBusy = false, outBusy = false;
     const double lead = _line.tLoad + _line.tBelt + _line.tDrop;
+    // lift carriages (0 down at the return belt, 1 up at the belt): the input
+    // lift brings a free jig up while the loader works, then goes down empty
+    double upIn = -1.0, sinceIn = 1e9;
     // youngest first: the loader arms follow the newest product of their phase
     for (auto it = _line.ages.rbegin(); it != _line.ages.rend(); ++it)
     {
       const double a = *it;
       if (a < _line.tLoad)
       {
+        const double up = std::min(1.0, a / std::max(1e-3, _line.tLift));
+        jig(0.0, up);                        // the lift brings a free jig up
+        if (upIn < 0.0)
+          upIn = up;
         const double p = a / std::max(1e-3, _line.tLoad);
         const int cell = std::min(_line.open, _line.cap - 1);
-        const Vector3d pick = this->Cell(inBase, in.yaw, cell, _line.hA, _line.cap);
-        const Vector3d pickTip = pick + Vector3d(0, 0, _line.hA / 2.0);
-        const Vector3d placeTip = _line.b0 + Vector3d(0, 0, _line.hA);
+        const Vector3d pick = this->Cell(inBase, in.yaw, cell, h0, _line.cap);
+        const Vector3d pickTip = pick + Vector3d(0, 0, h0 / 2.0);
+        const Vector3d placeTip = _line.b0 + onJig + Vector3d(0, 0, h0);
         if (!inBusy)
         {
           in.loader.cur = this->Loader(in.loader, pickTip, placeTip, in.yaw, p);
@@ -1312,28 +1375,30 @@ private:
           inBusy = true;
         }
         if (p < 0.30)
-          put(true, pick, in.yaw);
+          put(0, pick, in.yaw);
         else if (p < 0.85)
-          put(true, this->TipPos(in.loader, in.loader.cur) - Vector3d(0, 0, _line.hA / 2.0),
+          put(0, this->TipPos(in.loader, in.loader.cur) - Vector3d(0, 0, h0 / 2.0),
               in.loader.cur.yaw);
         else
-          put(true, _line.b0 + Vector3d(0, 0, _line.hA / 2.0), beltYaw);
+          put(0, _line.b0 + onJig + Vector3d(0, 0, h0 / 2.0), beltYaw);
       }
       else if (a < _line.tLoad + _line.tBelt)
       {
         const double s = (a - _line.tLoad) / _line.tBelt;
-        const bool look = s < _line.transform;
-        const double hh = look ? _line.hA : _line.hB;
-        put(look, _line.b0 + belt * s + Vector3d(0, 0, hh / 2.0), beltYaw);
+        const std::size_t k = stageAt(s);
+        sinceIn = std::min(sinceIn, a - _line.tLoad);
+        jig(s, 1.0);
+        put(k, _line.b0 + belt * s + onJig + Vector3d(0, 0, _line.stages[k].h / 2.0), beltYaw);
       }
       else
       {
+        jig(1.0, 1.0);                       // waits at the output end until it is free
         const double q = std::min(1.0, (a - _line.tLoad - _line.tBelt) /
                                   std::max(1e-3, lead - _line.tLoad - _line.tBelt));
         const int cell = std::min(_line.fill, _line.cap - 1);
-        const Vector3d drop = this->Cell(outBase, out.yaw, cell, _line.hB, _line.cap);
-        const Vector3d pickTip = _line.b1 + Vector3d(0, 0, _line.hB);
-        const Vector3d dropTip = drop + Vector3d(0, 0, _line.hB / 2.0);
+        const Vector3d drop = this->Cell(outBase, out.yaw, cell, hN, _line.cap);
+        const Vector3d pickTip = _line.b1 + onJig + Vector3d(0, 0, hN);
+        const Vector3d dropTip = drop + Vector3d(0, 0, hN / 2.0);
         if (!outBusy)
         {
           out.loader.cur = this->Loader(out.loader, pickTip, dropTip, out.yaw, q);
@@ -1341,14 +1406,51 @@ private:
           outBusy = true;
         }
         if (q < 0.30)
-          put(false, _line.b1 + Vector3d(0, 0, _line.hB / 2.0), beltYaw);
+          put(lastStage, _line.b1 + onJig + Vector3d(0, 0, hN / 2.0), beltYaw);
         else if (q < 0.85)
-          put(false, this->TipPos(out.loader, out.loader.cur) - Vector3d(0, 0, _line.hB / 2.0),
+          put(lastStage, this->TipPos(out.loader, out.loader.cur) - Vector3d(0, 0, hN / 2.0),
               out.loader.cur.yaw);
         else
-          put(false, drop, out.yaw);
+          put(lastStage, drop, out.yaw);
       }
     }
+    // free jigs: down the output lift, back on the return belt, queued at the input lift
+    const double back = _line.tLift + _line.tReturn;
+    _line.returning.erase(std::remove_if(_line.returning.begin(), _line.returning.end(),
+                                         [&](double r) { return r >= back; }),
+                          _line.returning.end());
+    if (upIn < 0.0)
+      upIn = std::max(0.0, 1.0 - sinceIn / std::max(1e-3, _line.tLift));
+    // the return belt accumulates: the free jigs queue from the input lift at
+    // JigPitch(), a returning jig stops behind the last one, and the queue
+    // moves up one place once the lift is back down
+    const double pitch = (JigPitch() / std::max(1e-3, belt.Length()));
+    const double roll = JigPitch() / std::max(1e-3, belt.Length() / _line.tReturn);
+    const double shift = upIn > 0.0 ? 1.0 : std::clamp(1.0 - (sinceIn - _line.tLift) / roll, 0.0, 1.0);
+    const std::size_t queued =
+        _line.jigs.size() - std::min(_line.jigs.size(), nj + _line.returning.size());
+    double rMin = 1e9;
+    for (std::size_t k = 0; k < _line.returning.size(); ++k)     // oldest first
+    {
+      const double r = _line.returning[k];
+      rMin = std::min(rMin, r);
+      if (r < _line.tLift)
+        jig(1.0, 1.0 - r / _line.tLift);
+      else
+        jig(std::max(1.0 - (r - _line.tLift) / _line.tReturn, (queued + k + shift) * pitch), 0.0);
+    }
+    // the output lift takes a jig down, waits until it has rolled off, goes up empty
+    const double upOut = rMin < _line.tLift
+                             ? 1.0 - rMin / _line.tLift
+                             : std::clamp((rMin - _line.tLift - kLiftClear) / _line.tLift, 0.0, 1.0);
+    for (std::size_t q = 0; nj < _line.jigs.size(); ++q)
+      jig((q + shift) * pitch, 0.0);
+    const std::array<std::pair<Vector3d, double>, 2> lifts{{{_line.b0, upIn}, {_line.b1, upOut}}};
+    for (std::size_t i = 0; i < 2; ++i)
+      if (_line.lifts[i] != kNullEntity)
+        this->Place(_ecm, _line.lifts[i],
+                    Pose3d(lifts[i].first + lowOff * (1.0 - lifts[i].second), Quaterniond(0, 0, beltYaw)),
+                    _line.lastLift[i]);
     for (End *e : {&in, &out})
     {
       const bool busy = e == &in ? inBusy : outBusy;
@@ -1360,11 +1462,12 @@ private:
       if (e->loader.dirty)
         this->PoseArm(_ecm, e->loader);
     }
-    for (; na < _line.poolA.size(); ++na)
-      this->Place(_ecm, _line.poolA[na], this->Hidden(), _line.lastA[na]);
-    for (; nb < _line.poolB.size(); ++nb)
-      this->Place(_ecm, _line.poolB[nb], this->Hidden(), _line.lastB[nb]);
+    for (auto &st : _line.stages)
+      for (; st.used < st.pool.size(); ++st.used)
+        this->Place(_ecm, st.pool[st.used], this->Hidden(), st.last[st.used]);
   }
+
+  static double JigPitch() { return 0.24; }    // m between queued jigs
 
   Pose3d Hidden() const
   {
@@ -1491,16 +1594,24 @@ private:
         e->htray = find(p + "_htray");
         e->lastHBox = e->lastHTray = this->Hidden();
       }
-      for (std::size_t k = 0; k < line.poolA.size(); ++k)
+      for (std::size_t k = 0; k < line.stages.size(); ++k)
+        for (std::size_t i = 0; i < line.stages[k].pool.size(); ++i)
+        {
+          line.stages[k].pool[i] = find("fl_" + line.id + "_s" + std::to_string(k) + "_" +
+                                        std::to_string(i));
+          line.stages[k].last[i] = this->Hidden();
+        }
+      for (std::size_t i = 0; i < line.jigs.size(); ++i)
       {
-        line.poolA[k] = find("fl_" + line.id + "_a" + std::to_string(k));
-        line.lastA[k] = this->Hidden();
+        line.jigs[i] = find("fl_" + line.id + "_jig" + std::to_string(i));
+        line.lastJig[i] = this->Hidden();
       }
-      for (std::size_t k = 0; k < line.poolB.size(); ++k)
-      {
-        line.poolB[k] = find("fl_" + line.id + "_b" + std::to_string(k));
-        line.lastB[k] = this->Hidden();
-      }
+      if (!line.jigs.empty())
+        for (std::size_t i = 0; i < 2; ++i)
+        {
+          line.lifts[i] = find("fl_" + line.id + "_lift" + std::to_string(i));
+          line.lastLift[i] = this->Hidden();
+        }
     }
     for (auto &gate : this->gates)
     {
